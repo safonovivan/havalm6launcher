@@ -56,4 +56,5 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     implementation("com.yandex.android:maps.mobile:4.45.0-full")
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }

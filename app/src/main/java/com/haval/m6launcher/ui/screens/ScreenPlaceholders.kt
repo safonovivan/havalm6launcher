@@ -1,7 +1,5 @@
 package com.haval.m6launcher.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,7 +36,7 @@ fun PlaceholderScreen(title: String) {
 // ГЛАВНЫЙ ЭКРАН (ДОМОЙ)
 // ==========================================
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onScanMedia: () -> Unit, onPickFolder: () -> Unit) {
     val context = LocalContext.current
     LaunchedEffect(Unit) { MusicPlayerState.initPlayer(context) }
 
@@ -50,8 +48,11 @@ fun HomeScreen() {
             modifier = Modifier.weight(1f).fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ВЫЗЫВАЕМ НАШ НОВЫЙ КОМПОНЕНТ ИЗ PlayerComponents.kt
-            HomeMusicWidget(modifier = Modifier.weight(1f))
+            HomeMusicWidget(
+                modifier = Modifier.weight(1f),
+                onScanMedia = onScanMedia,
+                onPickFolder = onPickFolder
+            )
         }
 
         Column(
@@ -104,10 +105,10 @@ fun InfoWidget(modifier: Modifier = Modifier) {
 }
 
 // ==========================================
-// ЭКРАН МУЗЫКИ (ПОЛНОЭКРАННЫЙ)
+// ЭКРАН МУЗЫКИ
 // ==========================================
 @Composable
-fun MusicScreen() {
+fun MusicScreen(onScanMedia: () -> Unit, onPickFolder: () -> Unit) {
     val context = LocalContext.current
     LaunchedEffect(Unit) { MusicPlayerState.initPlayer(context) }
 
@@ -118,21 +119,14 @@ fun MusicScreen() {
         }
     }
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            MusicPlayerState.loadTrackFromUri(context, uri)
-        }
-    }
-
-    // ВЫЗЫВАЕМ НАШ НОВЫЙ КОМПОНЕНТ, ПЕРЕДАВАЯ ЛОГИКУ ВЫБОРА ФАЙЛА
-    FullPlayerContent(onPickFile = { filePickerLauncher.launch("audio/*") })
+    // Вся логика разрешений вынесена в MainActivity!
+    FullPlayerContent(
+        onScanMedia = onScanMedia,
+        onPickFolder = onPickFolder
+    )
 }
 
-// ==========================================
-// НАСТРОЙКИ (БЕЗ ИЗМЕНЕНИЙ, ОСТАВЛЯЕМ КАК БЫЛО)
-// ==========================================
+// ... НАСТРОЙКИ БЕЗ ИЗМЕНЕНИЙ ...
 @Composable
 fun SettingsScreen(
     settings: com.haval.m6launcher.data.UserSettings,
@@ -168,7 +162,10 @@ fun SettingsScreen(
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Голосовой помощник", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
-            Switch(checked = settings.isVoiceAssistantEnabled, onCheckedChange = { onSettingsChange(settings.copy(isVoiceAssistantEnabled = it)) })
+            Switch(
+                checked = settings.isVoiceAssistantEnabled,
+                onCheckedChange = { onSettingsChange(settings.copy(isVoiceAssistantEnabled = it)) }
+            )
         }
         Column {
             Text("Отступы контента (${settings.contentPadding} dp)", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
@@ -218,13 +215,31 @@ fun SettingsScreen(
             }
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text("Оформление карты", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             Box {
-                Button(onClick = { mapThemeExpanded = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Text(text = when (settings.mapTheme) { "light" -> "Светлая"; "dark" -> "Тёмная"; else -> "Авто" }, color = MaterialTheme.colorScheme.primary)
+                Button(
+                    onClick = { mapThemeExpanded = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Text(
+                        text = when (settings.mapTheme) {
+                            "light" -> "Светлая"
+                            "dark" -> "Тёмная"
+                            else -> "Авто"
+                        },
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
-                DropdownMenu(expanded = mapThemeExpanded, onDismissRequest = { mapThemeExpanded = false }, properties = PopupProperties(focusable = false)) {
+                DropdownMenu(
+                    expanded = mapThemeExpanded,
+                    onDismissRequest = { mapThemeExpanded = false },
+                    properties = PopupProperties(focusable = false)
+                ) {
                     DropdownMenuItem(text = { Text("Светлая") }, onClick = { onSettingsChange(settings.copy(mapTheme = "light")); mapThemeExpanded = false })
                     DropdownMenuItem(text = { Text("Тёмная") }, onClick = { onSettingsChange(settings.copy(mapTheme = "dark")); mapThemeExpanded = false })
                     DropdownMenuItem(text = { Text("Авто") }, onClick = { onSettingsChange(settings.copy(mapTheme = "auto")); mapThemeExpanded = false })
@@ -243,7 +258,10 @@ fun SettingsScreen(
                     Button(onClick = { doubleTapExpanded = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Text(getActionTypeName(settings.homeDoubleTapType), color = MaterialTheme.colorScheme.primary)
                     }
-                    DropdownMenu(expanded = doubleTapExpanded, onDismissRequest = { doubleTapExpanded = false }, properties = PopupProperties(focusable = false)) {
+                    DropdownMenu(
+                        expanded = doubleTapExpanded, onDismissRequest = { doubleTapExpanded = false },
+                        properties = PopupProperties(focusable = false)
+                    ) {
                         DropdownMenuItem(text = { Text("Ничего") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapType = "none", homeDoubleTapValue = "")); doubleTapExpanded = false })
                         DropdownMenuItem(text = { Text("Действие") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapType = "action", homeDoubleTapValue = "recents")); doubleTapExpanded = false })
                         DropdownMenuItem(text = { Text("Приложение") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapType = "app", homeDoubleTapValue = "")); doubleTapExpanded = false })
@@ -256,8 +274,13 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                     Text("Конкретное действие: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     Box {
-                        TextButton(onClick = { doubleTapActionExpanded = true }) { Text(getActionValueName(settings.homeDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
-                        DropdownMenu(expanded = doubleTapActionExpanded, onDismissRequest = { doubleTapActionExpanded = false }, properties = PopupProperties(focusable = false)) {
+                        TextButton(onClick = { doubleTapActionExpanded = true }) {
+                            Text(getActionValueName(settings.homeDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        DropdownMenu(
+                            expanded = doubleTapActionExpanded, onDismissRequest = { doubleTapActionExpanded = false },
+                            properties = PopupProperties(focusable = false)
+                        ) {
                             DropdownMenuItem(text = { Text("Недавние приложения") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = "recents")); doubleTapActionExpanded = false })
                             DropdownMenuItem(text = { Text("Настройки Android") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = "android_settings")); doubleTapActionExpanded = false })
                             DropdownMenuItem(text = { Text("Открыть Браузер") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = "browser")); doubleTapActionExpanded = false })
@@ -270,9 +293,21 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Приложение: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     Box {
-                        TextButton(onClick = { doubleTapAppExpanded = true }) { Text(getAppNameByPackage(settings.homeDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
-                        DropdownMenu(expanded = doubleTapAppExpanded, onDismissRequest = { doubleTapAppExpanded = false }, properties = PopupProperties(focusable = false), modifier = Modifier.heightIn(max = 300.dp)) {
-                            allApps.forEach { app -> DropdownMenuItem(text = { Text(app.name) }, onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = app.packageName)); doubleTapAppExpanded = false }) }
+                        TextButton(onClick = { doubleTapAppExpanded = true }) {
+                            Text(getAppNameByPackage(settings.homeDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        DropdownMenu(
+                            expanded = doubleTapAppExpanded,
+                            onDismissRequest = { doubleTapAppExpanded = false },
+                            properties = PopupProperties(focusable = false),
+                            modifier = Modifier.heightIn(max = 300.dp)
+                        ) {
+                            allApps.forEach { app ->
+                                DropdownMenuItem(
+                                    text = { Text(app.name) },
+                                    onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = app.packageName)); doubleTapAppExpanded = false }
+                                )
+                            }
                         }
                     }
                 }
@@ -286,7 +321,10 @@ fun SettingsScreen(
                     Button(onClick = { longPressExpanded = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Text(getActionTypeName(settings.homeLongPressType), color = MaterialTheme.colorScheme.primary)
                     }
-                    DropdownMenu(expanded = longPressExpanded, onDismissRequest = { longPressExpanded = false }, properties = PopupProperties(focusable = false)) {
+                    DropdownMenu(
+                        expanded = longPressExpanded, onDismissRequest = { longPressExpanded = false },
+                        properties = PopupProperties(focusable = false)
+                    ) {
                         DropdownMenuItem(text = { Text("Ничего") }, onClick = { onSettingsChange(settings.copy(homeLongPressType = "none", homeLongPressValue = "")); longPressExpanded = false })
                         DropdownMenuItem(text = { Text("Действие") }, onClick = { onSettingsChange(settings.copy(homeLongPressType = "action", homeLongPressValue = "recents")); longPressExpanded = false })
                         DropdownMenuItem(text = { Text("Приложение") }, onClick = { onSettingsChange(settings.copy(homeLongPressType = "app", homeLongPressValue = "")); longPressExpanded = false })
@@ -299,8 +337,13 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                     Text("Конкретное действие: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     Box {
-                        TextButton(onClick = { longPressActionExpanded = true }) { Text(getActionValueName(settings.homeLongPressValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
-                        DropdownMenu(expanded = longPressActionExpanded, onDismissRequest = { longPressActionExpanded = false }, properties = PopupProperties(focusable = false)) {
+                        TextButton(onClick = { longPressActionExpanded = true }) {
+                            Text(getActionValueName(settings.homeLongPressValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        DropdownMenu(
+                            expanded = longPressActionExpanded, onDismissRequest = { longPressActionExpanded = false },
+                            properties = PopupProperties(focusable = false)
+                        ) {
                             DropdownMenuItem(text = { Text("Недавние приложения") }, onClick = { onSettingsChange(settings.copy(homeLongPressValue = "recents")); longPressActionExpanded = false })
                             DropdownMenuItem(text = { Text("Настройки Android") }, onClick = { onSettingsChange(settings.copy(homeLongPressValue = "android_settings")); longPressActionExpanded = false })
                             DropdownMenuItem(text = { Text("Открыть Браузер") }, onClick = { onSettingsChange(settings.copy(homeLongPressValue = "browser")); longPressActionExpanded = false })
@@ -313,9 +356,21 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Приложение: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     Box {
-                        TextButton(onClick = { longPressAppExpanded = true }) { Text(getAppNameByPackage(settings.homeLongPressValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
-                        DropdownMenu(expanded = longPressAppExpanded, onDismissRequest = { longPressAppExpanded = false }, properties = PopupProperties(focusable = false), modifier = Modifier.heightIn(max = 300.dp)) {
-                            allApps.forEach { app -> DropdownMenuItem(text = { Text(app.name) }, onClick = { onSettingsChange(settings.copy(homeLongPressValue = app.packageName)); longPressAppExpanded = false }) }
+                        TextButton(onClick = { longPressAppExpanded = true }) {
+                            Text(getAppNameByPackage(settings.homeLongPressValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        DropdownMenu(
+                            expanded = longPressAppExpanded,
+                            onDismissRequest = { longPressAppExpanded = false },
+                            properties = PopupProperties(focusable = false),
+                            modifier = Modifier.heightIn(max = 300.dp)
+                        ) {
+                            allApps.forEach { app ->
+                                DropdownMenuItem(
+                                    text = { Text(app.name) },
+                                    onClick = { onSettingsChange(settings.copy(homeLongPressValue = app.packageName)); longPressAppExpanded = false }
+                                )
+                            }
                         }
                     }
                 }

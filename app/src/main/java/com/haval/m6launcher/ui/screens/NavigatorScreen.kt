@@ -29,7 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.haval.m6launcher.ui.components.NavPlayerPanel // НОВЫЙ ИМПОРТ
+import com.haval.m6launcher.ui.components.NavPlayerPanel
 import com.haval.m6launcher.ui.components.RouteManager
 import com.haval.m6launcher.ui.components.YandexMapComponent
 import com.yandex.mapkit.GeoObject
@@ -49,7 +49,9 @@ enum class RatioState(val mapWeight: Float) {
 fun NavigatorScreen(
     apiKey: String,
     mapTheme: String,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onScanMedia: () -> Unit,
+    onPickFolder: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -227,7 +229,11 @@ fun NavigatorScreen(
 
     val playerContent = remember {
         movableContentOf<Modifier> { modifier ->
-            NavPlayerPanel(modifier = modifier) // ЗАМЕНА НА НОВЫЙ КОМПОНЕНТ
+            NavPlayerPanel(
+                modifier = modifier,
+                onScanMedia = onScanMedia,
+                onPickFolder = onPickFolder
+            )
         }
     }
 
@@ -318,7 +324,6 @@ fun MapPanel(
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Кнопка Swap
                     Button(
                         onClick = onSwapClick,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary),
@@ -329,7 +334,6 @@ fun MapPanel(
                         Icon(Icons.Default.SwapHoriz, "Swap", modifier = Modifier.size(24.dp))
                     }
 
-                    // Кнопка Ratio (повернутая Splitscreen)
                     Button(
                         onClick = onRatioClick,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary),

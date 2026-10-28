@@ -1,15 +1,19 @@
 package com.haval.m6launcher
 
+import android.Manifest
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.speech.RecognizerIntent // НОВЫЙ ИМПОРТ
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,9 +25,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -31,6 +39,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.haval.m6launcher.data.MusicPlayerState
 import com.haval.m6launcher.data.SettingsRepository
 import com.haval.m6launcher.data.UserSettings
 import com.haval.m6launcher.ui.components.LeftNavigationPanel
@@ -176,44 +185,73 @@ fun MainLauncherContent(
     val currentRoute = navBackStackEntry?.destination?.route
     val context = LocalContext.current
 
-    // ФУНКЦИЯ ЗАПУСКА ГОЛОСОВОГО ПОМОЩНИКА (АДАПТИРОВАНА ПОД ANDROID 9 / ГУ БЕЗ GOOGLE, ПРИОРИТЕТ НА РУССКИЙ ЯЗЫК)
+    // === ЕДИНЫЙ ЦЕНТР РАЗРЕШЕНИЙ И ЛОГИКИ МУЗЫКИ ===
+    var hasPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        hasPermission = isGranted
+    }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            try {
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (e: Exception) { }
+            MusicPlayerState.loadTracksFromFolder(context, uri)
+        }
+    }
+
+    val handleScan = {
+        if (hasPermission) {
+            MusicPlayerState.loadDeviceMusic(context)
+        } else {
+            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+            permissionLauncher.launch(permission)
+        }
+    }
+
+    val handlePickFolder = {
+        if (hasPermission) {
+            folderPickerLauncher.launch(null)
+        } else {
+            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+            permissionLauncher.launch(permission)
+        }
+    }
+    // ===============================================
 
     val startVoiceInput = {
         var launched = false
-
-        // --- Попытка 1: Стандартный распознаватель речи (Работает везде, знает русский) ---
-        val recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU") // Жестко задаем русский язык
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Слушаю...")
+        val recognizerIntent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Слушаю...")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-
         if (recognizerIntent.resolveActivity(context.packageManager) != null) {
             try {
                 context.startActivity(recognizerIntent)
                 launched = true
-            } catch (e: Exception) {
-                // Если что-то пошло не так, идем дальше
-            }
+            } catch (e: Exception) {}
         }
-
-        // --- Попытка 2: Системный голосовой ассистент (Google, Алиса и т.д.) ---
         if (!launched) {
-            val voiceCommandIntent = Intent(Intent.ACTION_VOICE_COMMAND).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
+            val voiceCommandIntent = Intent(Intent.ACTION_VOICE_COMMAND).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
             if (voiceCommandIntent.resolveActivity(context.packageManager) != null) {
                 try {
                     context.startActivity(voiceCommandIntent)
                     launched = true
-                } catch (e: Exception) {
-                    // Не сработало
-                }
+                } catch (e: Exception) {}
             }
         }
-
-        // --- Если вообще ничего не нашли ---
         if (!launched) {
             Toast.makeText(context, "Голосовой ввод не найден на этом устройстве", Toast.LENGTH_SHORT).show()
         }
@@ -237,15 +275,21 @@ fun MainLauncherContent(
             startDestination = "home",
             modifier = Modifier.fillMaxSize().padding(settings.contentPadding.dp)
         ) {
-            composable("home") { HomeScreen() }
+            composable("home") {
+                HomeScreen(onScanMedia = handleScan, onPickFolder = handlePickFolder)
+            }
             composable("nav") {
                 NavigatorScreen(
                     apiKey = settings.yandexMapApiKey,
                     mapTheme = settings.mapTheme,
-                    onNavigateToSettings = { navController.navigate("settings") }
+                    onNavigateToSettings = { navController.navigate("settings") },
+                    onScanMedia = handleScan,
+                    onPickFolder = handlePickFolder
                 )
             }
-            composable("music") { MusicScreen() }
+            composable("music") {
+                MusicScreen(onScanMedia = handleScan, onPickFolder = handlePickFolder)
+            }
             composable("obd") { ObdScreen() }
             composable("apps") { AppsScreen() }
             composable("settings") {
@@ -255,7 +299,6 @@ fun MainLauncherContent(
                     onRestartApp = onRestartApp
                 )
             }
-            // composable("voice") удалён — экран больше не нужен
         }
     }
 }
