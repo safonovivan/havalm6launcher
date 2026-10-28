@@ -105,7 +105,19 @@ fun NavigatorScreen(
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<GeoObject>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
-    val searchManager = remember { SearchFactory.getInstance().createSearchManager(SearchManagerType.COMBINED) }
+
+    // ИСПРАВЛЕНИЕ: Безопасное создание searchManager
+    val searchManager = remember(apiKey) {
+        if (apiKey.isNotBlank()) {
+            try {
+                SearchFactory.getInstance().createSearchManager(SearchManagerType.COMBINED)
+            } catch (e: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -182,7 +194,8 @@ fun NavigatorScreen(
                     if (query.length > 2) {
                         mapInstance?.cameraPosition?.target?.let { tp ->
                             isSearching = true
-                            searchManager.submit(query, Geometry.fromPoint(tp), SearchOptions(), object : Session.SearchListener {
+                            // ИСПРАВЛЕНИЕ: безопасный вызов через ?.
+                            searchManager?.submit(query, Geometry.fromPoint(tp), SearchOptions(), object : Session.SearchListener {
                                 override fun onSearchResponse(response: Response) {
                                     isSearching = false
                                     searchResults = response.collection.children.mapNotNull { it.obj }

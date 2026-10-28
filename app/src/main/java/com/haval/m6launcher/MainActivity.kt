@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
                 MapKitFactory.setApiKey(apiKey)
                 MapKitFactory.initialize(this)
                 // com.yandex.mapkit.directions.DirectionsFactory.initialize(this)
-            } catch (e: Exception) {
+            } catch (e: Throwable) { // Изменено на Throwable для отлова ошибок нативных библиотек
                 Toast.makeText(this, "Ошибка инициализации карт: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
