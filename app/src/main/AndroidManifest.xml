@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Разрешение на автозапуск -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- Запрос списка приложений и голосового помощника -->
     <queries>
         <intent>
@@ -15,6 +18,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
@@ -28,6 +32,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Havalm6launcher">
 
+        <!-- НОВОЕ: Ресивер автозапуска при включении ГУ -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -36,14 +50,16 @@
             android:theme="@style/Theme.Havalm6launcher"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Свойство для корректного сохранения фиксированной ориентации на Android 16+ -->
             <property
                 android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
                 android:value="true" />
 
+            <!-- ОБНОВЛЕНО: Добавлены HOME и DEFAULT, чтобы стать лаунчером -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>
