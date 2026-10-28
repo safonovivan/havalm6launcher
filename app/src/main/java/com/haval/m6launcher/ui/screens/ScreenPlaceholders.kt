@@ -1,5 +1,7 @@
 package com.haval.m6launcher.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,16 +12,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
 import com.haval.m6launcher.data.MusicPlayerState
+import com.haval.m6launcher.ui.components.FullPlayerContent
+import com.haval.m6launcher.ui.components.HomeMusicWidget
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -48,7 +50,8 @@ fun HomeScreen() {
             modifier = Modifier.weight(1f).fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            MusicWidget(modifier = Modifier.weight(1f))
+            // ВЫЗЫВАЕМ НАШ НОВЫЙ КОМПОНЕНТ ИЗ PlayerComponents.kt
+            HomeMusicWidget(modifier = Modifier.weight(1f))
         }
 
         Column(
@@ -57,123 +60,6 @@ fun HomeScreen() {
         ) {
             NavWidget(modifier = Modifier.weight(1f))
             InfoWidget(modifier = Modifier.height(100.dp))
-        }
-    }
-}
-
-// ==========================================
-// ОБЩИЕ КОМПОНЕНТЫ ПЛЕЕРА
-// ==========================================
-@Composable
-fun PlayerControls(modifier: Modifier = Modifier, largeIcons: Boolean = false) {
-    val mainButtonSize = if (largeIcons) 120.dp else 100.dp
-    val secondaryButtonSize = if (largeIcons) 72.dp else 64.dp
-
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = { }, modifier = Modifier.size(secondaryButtonSize)) {
-            Icon(Icons.Default.FavoriteBorder, "Like", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), modifier = Modifier.size(secondaryButtonSize * 0.8f))
-        }
-
-        IconButton(onClick = { MusicPlayerState.togglePlayPause() }, modifier = Modifier.size(mainButtonSize)) {
-            Icon(
-                imageVector = if (MusicPlayerState.isPlaying) Icons.Default.PauseCircleFilled else Icons.Default.PlayCircleFilled,
-                contentDescription = "Play/Pause",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(mainButtonSize)
-            )
-        }
-
-        IconButton(onClick = { MusicPlayerState.nextTrack() }, modifier = Modifier.size(secondaryButtonSize)) {
-            Icon(Icons.Default.SkipNext, "Next", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), modifier = Modifier.size(secondaryButtonSize * 0.8f))
-        }
-    }
-}
-
-fun formatTime(ms: Int): String {
-    if (ms <= 0) return "0:00"
-    val seconds = (ms / 1000) % 60
-    val minutes = (ms / (1000 * 60)) % 60
-    return String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
-}
-
-// ==========================================
-// ВИДЖЕТЫ ГЛАВНОГО ЭКРАНА
-// ==========================================
-@Composable
-fun MusicWidget(modifier: Modifier = Modifier) {
-    LaunchedEffect(Unit) {
-        while (true) {
-            MusicPlayerState.updatePosition()
-            delay(1000L)
-        }
-    }
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(24.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(24.dp).fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Музыка", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), fontSize = 18.sp)
-
-            // Блок с обложкой и названием
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(90.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.background),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.MusicNote, "Cover", modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text(
-                        MusicPlayerState.currentTitle,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1
-                    )
-                    Text(
-                        MusicPlayerState.currentArtist,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        maxLines = 1
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Slider(
-                value = MusicPlayerState.currentPosition.toFloat(),
-                onValueChange = { MusicPlayerState.seekTo(it.toInt()) },
-                valueRange = 0f..(if (MusicPlayerState.totalDuration > 0) MusicPlayerState.totalDuration.toFloat() else 1f),
-                modifier = Modifier.height(40.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                )
-            )
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatTime(MusicPlayerState.currentPosition), fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                Text(formatTime(MusicPlayerState.totalDuration), fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            PlayerControls(modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -188,7 +74,7 @@ fun NavWidget(modifier: Modifier = Modifier) {
         Column(modifier = Modifier.padding(24.dp)) {
             Text("Навигатор", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), fontSize = 18.sp)
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Мончегорская", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text("Мончегорская", fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Text("42 мин", fontSize = 20.sp, color = Color(0xFF4CAF50))
         }
     }
@@ -211,8 +97,8 @@ fun InfoWidget(modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(currentTime, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Text("+18°", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text(currentTime, fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text("+18°", fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }
@@ -232,82 +118,20 @@ fun MusicScreen() {
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceEvenly
-    ) {
-        // Шапка
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            val dateFormat = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault())
-            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-            val now = Date()
-            Text(dateFormat.format(now).replaceFirstChar { it.uppercase() }, fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
-            Text(timeFormat.format(now), fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            MusicPlayerState.loadTrackFromUri(context, uri)
         }
-
-        // Обложка (уменьшена)
-        Box(
-            modifier = Modifier
-                .size(300.dp)
-                .clip(RoundedCornerShape(32.dp))
-                .background(MaterialTheme.colorScheme.surface),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Default.MusicNote,
-                contentDescription = "Cover",
-                modifier = Modifier.size(120.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-            )
-        }
-
-        // Название и автор
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = MusicPlayerState.currentTitle,
-                fontSize = 48.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1
-            )
-            Text(
-                text = MusicPlayerState.currentArtist,
-                fontSize = 24.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                maxLines = 1
-            )
-        }
-
-        // Ползунок
-        Column(modifier = Modifier.fillMaxWidth(0.8f)) {
-            Slider(
-                value = MusicPlayerState.currentPosition.toFloat(),
-                onValueChange = { MusicPlayerState.seekTo(it.toInt()) },
-                valueRange = 0f..(if (MusicPlayerState.totalDuration > 0) MusicPlayerState.totalDuration.toFloat() else 1f),
-                modifier = Modifier.height(40.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
-                )
-            )
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatTime(MusicPlayerState.currentPosition), fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
-                Text(formatTime(MusicPlayerState.totalDuration), fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
-            }
-        }
-
-        // Кнопки
-        PlayerControls(modifier = Modifier.fillMaxWidth(0.6f), largeIcons = true)
     }
+
+    // ВЫЗЫВАЕМ НАШ НОВЫЙ КОМПОНЕНТ, ПЕРЕДАВАЯ ЛОГИКУ ВЫБОРА ФАЙЛА
+    FullPlayerContent(onPickFile = { filePickerLauncher.launch("audio/*") })
 }
 
 // ==========================================
-// НАСТРОЙКИ (ПОЛНЫЙ КОД)
+// НАСТРОЙКИ (БЕЗ ИЗМЕНЕНИЙ, ОСТАВЛЯЕМ КАК БЫЛО)
 // ==========================================
 @Composable
 fun SettingsScreen(
@@ -334,17 +158,17 @@ fun SettingsScreen(
         Text("Настройки", fontSize = 32.sp, color = MaterialTheme.colorScheme.onBackground)
         HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
 
-        // 1. ОБЩИЕ НАСТРОЙКИ
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Темная тема", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
             Switch(checked = settings.isDarkTheme, onCheckedChange = { onSettingsChange(settings.copy(isDarkTheme = it)) })
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Полноэкранный режим", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+            Switch(checked = settings.isFullScreen, onCheckedChange = { onSettingsChange(settings.copy(isFullScreen = it)) })
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Голосовой помощник", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
-            Switch(
-                checked = settings.isVoiceAssistantEnabled,
-                onCheckedChange = { onSettingsChange(settings.copy(isVoiceAssistantEnabled = it)) }
-            )
+            Switch(checked = settings.isVoiceAssistantEnabled, onCheckedChange = { onSettingsChange(settings.copy(isVoiceAssistantEnabled = it)) })
         }
         Column {
             Text("Отступы контента (${settings.contentPadding} dp)", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
@@ -353,7 +177,6 @@ fun SettingsScreen(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
 
-        // 2. НАСТРОЙКИ КАРТЫ
         Text("Яндекс.Карты", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
 
         Column {
@@ -395,31 +218,13 @@ fun SettingsScreen(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Оформление карты", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             Box {
-                Button(
-                    onClick = { mapThemeExpanded = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Text(
-                        text = when (settings.mapTheme) {
-                            "light" -> "Светлая"
-                            "dark" -> "Тёмная"
-                            else -> "Авто"
-                        },
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                Button(onClick = { mapThemeExpanded = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Text(text = when (settings.mapTheme) { "light" -> "Светлая"; "dark" -> "Тёмная"; else -> "Авто" }, color = MaterialTheme.colorScheme.primary)
                 }
-                DropdownMenu(
-                    expanded = mapThemeExpanded,
-                    onDismissRequest = { mapThemeExpanded = false },
-                    properties = PopupProperties(focusable = false)
-                ) {
+                DropdownMenu(expanded = mapThemeExpanded, onDismissRequest = { mapThemeExpanded = false }, properties = PopupProperties(focusable = false)) {
                     DropdownMenuItem(text = { Text("Светлая") }, onClick = { onSettingsChange(settings.copy(mapTheme = "light")); mapThemeExpanded = false })
                     DropdownMenuItem(text = { Text("Тёмная") }, onClick = { onSettingsChange(settings.copy(mapTheme = "dark")); mapThemeExpanded = false })
                     DropdownMenuItem(text = { Text("Авто") }, onClick = { onSettingsChange(settings.copy(mapTheme = "auto")); mapThemeExpanded = false })
@@ -429,10 +234,8 @@ fun SettingsScreen(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
 
-        // 3. КНОПКА "ДОМОЙ"
         Text("Кнопка «Домой»", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
 
-        // Двойной клик
         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Двойной клик", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
@@ -440,10 +243,7 @@ fun SettingsScreen(
                     Button(onClick = { doubleTapExpanded = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Text(getActionTypeName(settings.homeDoubleTapType), color = MaterialTheme.colorScheme.primary)
                     }
-                    DropdownMenu(
-                        expanded = doubleTapExpanded, onDismissRequest = { doubleTapExpanded = false },
-                        properties = PopupProperties(focusable = false)
-                    ) {
+                    DropdownMenu(expanded = doubleTapExpanded, onDismissRequest = { doubleTapExpanded = false }, properties = PopupProperties(focusable = false)) {
                         DropdownMenuItem(text = { Text("Ничего") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapType = "none", homeDoubleTapValue = "")); doubleTapExpanded = false })
                         DropdownMenuItem(text = { Text("Действие") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapType = "action", homeDoubleTapValue = "recents")); doubleTapExpanded = false })
                         DropdownMenuItem(text = { Text("Приложение") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapType = "app", homeDoubleTapValue = "")); doubleTapExpanded = false })
@@ -456,13 +256,8 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                     Text("Конкретное действие: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     Box {
-                        TextButton(onClick = { doubleTapActionExpanded = true }) {
-                            Text(getActionValueName(settings.homeDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                        DropdownMenu(
-                            expanded = doubleTapActionExpanded, onDismissRequest = { doubleTapActionExpanded = false },
-                            properties = PopupProperties(focusable = false)
-                        ) {
+                        TextButton(onClick = { doubleTapActionExpanded = true }) { Text(getActionValueName(settings.homeDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
+                        DropdownMenu(expanded = doubleTapActionExpanded, onDismissRequest = { doubleTapActionExpanded = false }, properties = PopupProperties(focusable = false)) {
                             DropdownMenuItem(text = { Text("Недавние приложения") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = "recents")); doubleTapActionExpanded = false })
                             DropdownMenuItem(text = { Text("Настройки Android") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = "android_settings")); doubleTapActionExpanded = false })
                             DropdownMenuItem(text = { Text("Открыть Браузер") }, onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = "browser")); doubleTapActionExpanded = false })
@@ -475,28 +270,15 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Приложение: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     Box {
-                        TextButton(onClick = { doubleTapAppExpanded = true }) {
-                            Text(getAppNameByPackage(settings.homeDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                        DropdownMenu(
-                            expanded = doubleTapAppExpanded,
-                            onDismissRequest = { doubleTapAppExpanded = false },
-                            properties = PopupProperties(focusable = false),
-                            modifier = Modifier.heightIn(max = 300.dp)
-                        ) {
-                            allApps.forEach { app ->
-                                DropdownMenuItem(
-                                    text = { Text(app.name) },
-                                    onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = app.packageName)); doubleTapAppExpanded = false }
-                                )
-                            }
+                        TextButton(onClick = { doubleTapAppExpanded = true }) { Text(getAppNameByPackage(settings.homeDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
+                        DropdownMenu(expanded = doubleTapAppExpanded, onDismissRequest = { doubleTapAppExpanded = false }, properties = PopupProperties(focusable = false), modifier = Modifier.heightIn(max = 300.dp)) {
+                            allApps.forEach { app -> DropdownMenuItem(text = { Text(app.name) }, onClick = { onSettingsChange(settings.copy(homeDoubleTapValue = app.packageName)); doubleTapAppExpanded = false }) }
                         }
                     }
                 }
             }
         }
 
-        // Долгое нажатие
         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Долгое нажатие", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
@@ -504,10 +286,7 @@ fun SettingsScreen(
                     Button(onClick = { longPressExpanded = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Text(getActionTypeName(settings.homeLongPressType), color = MaterialTheme.colorScheme.primary)
                     }
-                    DropdownMenu(
-                        expanded = longPressExpanded, onDismissRequest = { longPressExpanded = false },
-                        properties = PopupProperties(focusable = false)
-                    ) {
+                    DropdownMenu(expanded = longPressExpanded, onDismissRequest = { longPressExpanded = false }, properties = PopupProperties(focusable = false)) {
                         DropdownMenuItem(text = { Text("Ничего") }, onClick = { onSettingsChange(settings.copy(homeLongPressType = "none", homeLongPressValue = "")); longPressExpanded = false })
                         DropdownMenuItem(text = { Text("Действие") }, onClick = { onSettingsChange(settings.copy(homeLongPressType = "action", homeLongPressValue = "recents")); longPressExpanded = false })
                         DropdownMenuItem(text = { Text("Приложение") }, onClick = { onSettingsChange(settings.copy(homeLongPressType = "app", homeLongPressValue = "")); longPressExpanded = false })
@@ -520,13 +299,8 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                     Text("Конкретное действие: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     Box {
-                        TextButton(onClick = { longPressActionExpanded = true }) {
-                            Text(getActionValueName(settings.homeLongPressValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                        DropdownMenu(
-                            expanded = longPressActionExpanded, onDismissRequest = { longPressActionExpanded = false },
-                            properties = PopupProperties(focusable = false)
-                        ) {
+                        TextButton(onClick = { longPressActionExpanded = true }) { Text(getActionValueName(settings.homeLongPressValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
+                        DropdownMenu(expanded = longPressActionExpanded, onDismissRequest = { longPressActionExpanded = false }, properties = PopupProperties(focusable = false)) {
                             DropdownMenuItem(text = { Text("Недавние приложения") }, onClick = { onSettingsChange(settings.copy(homeLongPressValue = "recents")); longPressActionExpanded = false })
                             DropdownMenuItem(text = { Text("Настройки Android") }, onClick = { onSettingsChange(settings.copy(homeLongPressValue = "android_settings")); longPressActionExpanded = false })
                             DropdownMenuItem(text = { Text("Открыть Браузер") }, onClick = { onSettingsChange(settings.copy(homeLongPressValue = "browser")); longPressActionExpanded = false })
@@ -539,21 +313,9 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Приложение: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     Box {
-                        TextButton(onClick = { longPressAppExpanded = true }) {
-                            Text(getAppNameByPackage(settings.homeLongPressValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                        DropdownMenu(
-                            expanded = longPressAppExpanded,
-                            onDismissRequest = { longPressAppExpanded = false },
-                            properties = PopupProperties(focusable = false),
-                            modifier = Modifier.heightIn(max = 300.dp)
-                        ) {
-                            allApps.forEach { app ->
-                                DropdownMenuItem(
-                                    text = { Text(app.name) },
-                                    onClick = { onSettingsChange(settings.copy(homeLongPressValue = app.packageName)); longPressAppExpanded = false }
-                                )
-                            }
+                        TextButton(onClick = { longPressAppExpanded = true }) { Text(getAppNameByPackage(settings.homeLongPressValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
+                        DropdownMenu(expanded = longPressAppExpanded, onDismissRequest = { longPressAppExpanded = false }, properties = PopupProperties(focusable = false), modifier = Modifier.heightIn(max = 300.dp)) {
+                            allApps.forEach { app -> DropdownMenuItem(text = { Text(app.name) }, onClick = { onSettingsChange(settings.copy(homeLongPressValue = app.packageName)); longPressAppExpanded = false }) }
                         }
                     }
                 }
@@ -566,22 +328,11 @@ fun SettingsScreen(
 }
 
 fun getActionTypeName(type: String): String {
-    return when (type) {
-        "none" -> "Ничего"
-        "action" -> "Действие"
-        "app" -> "Приложение"
-        else -> "Не задано"
-    }
+    return when (type) { "none" -> "Ничего"; "action" -> "Действие"; "app" -> "Приложение"; else -> "Не задано" }
 }
 
 fun getActionValueName(value: String): String {
-    return when (value) {
-        "recents" -> "Недавние приложения"
-        "android_settings" -> "Настройки Android"
-        "browser" -> "Открыть Браузер"
-        "dialer" -> "Набор номера"
-        else -> value
-    }
+    return when (value) { "recents" -> "Недавние приложения"; "android_settings" -> "Настройки Android"; "browser" -> "Открыть Браузер"; "dialer" -> "Набор номера"; else -> value }
 }
 
 @Composable
@@ -592,9 +343,7 @@ fun getAppNameByPackage(packageName: String): String {
         val pm = context.packageManager
         val appInfo = pm.getApplicationInfo(packageName, 0)
         pm.getApplicationLabel(appInfo).toString()
-    } catch (e: Exception) {
-        "Неизвестное приложение"
-    }
+    } catch (e: Exception) { "Неизвестное приложение" }
 }
 
 @Composable fun ObdScreen() = PlaceholderScreen("Параметры авто (OBD)")
