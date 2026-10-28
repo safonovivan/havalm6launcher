@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Разрешение на автозапуск -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Разрешение на управление медиа-сессиями (подавляем предупреждение для системных приложений) -->
+    <uses-permission
+        android:name="android.permission.MEDIA_CONTENT_CONTROL"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- Запрос списка приложений и голосового помощника -->
     <queries>
@@ -30,9 +36,10 @@
         android:label="havalm6launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Havalm6launcher">
 
-        <!-- НОВОЕ: Ресивер автозапуска при включении ГУ -->
+        <!-- Ресивер автозапуска при включении ГУ -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -41,6 +48,16 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Служба перехвата медиа-сессий -->
+        <service
+            android:name=".MediaControlService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name=".MainActivity"
@@ -54,7 +71,6 @@
                 android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
                 android:value="true" />
 
-            <!-- ОБНОВЛЕНО: Добавлены HOME и DEFAULT, чтобы стать лаунчером -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

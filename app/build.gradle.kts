@@ -57,4 +57,6 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     implementation("com.yandex.android:maps.mobile:4.45.0-full")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("io.coil-kt:coil-compose:2.4.0")
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
 }

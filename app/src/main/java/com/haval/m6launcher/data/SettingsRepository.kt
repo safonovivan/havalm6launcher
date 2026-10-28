@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.map
 
@@ -20,7 +21,8 @@ data class UserSettings(
     val homeLongPressType: String = "none",
     val homeLongPressValue: String = "",
     val mapTheme: String = "auto",
-    val isVoiceAssistantEnabled: Boolean = true // НОВОЕ ПОЛЕ
+    val isVoiceAssistantEnabled: Boolean = true,
+    val favoriteRadioIds: Set<String> = emptySet()
 )
 
 class SettingsRepository(private val context: Context) {
@@ -34,7 +36,8 @@ class SettingsRepository(private val context: Context) {
         val HOME_LONG_PRESS_TYPE = stringPreferencesKey("home_long_press_type")
         val HOME_LONG_PRESS_VALUE = stringPreferencesKey("home_long_press_value")
         val MAP_THEME_KEY = stringPreferencesKey("map_theme")
-        val VOICE_ENABLED_KEY = booleanPreferencesKey("voice_enabled") // НОВЫЙ КЛЮЧ
+        val VOICE_ENABLED_KEY = booleanPreferencesKey("voice_enabled")
+        val FAVORITE_RADIO_IDS = stringSetPreferencesKey("favorite_radio_ids")
     }
 
     val userSettings = context.dataStore.data.map { preferences ->
@@ -48,7 +51,8 @@ class SettingsRepository(private val context: Context) {
             homeLongPressType = preferences[HOME_LONG_PRESS_TYPE] ?: "none",
             homeLongPressValue = preferences[HOME_LONG_PRESS_VALUE] ?: "",
             mapTheme = preferences[MAP_THEME_KEY] ?: "auto",
-            isVoiceAssistantEnabled = preferences[VOICE_ENABLED_KEY] ?: true // ЧТЕНИЕ
+            isVoiceAssistantEnabled = preferences[VOICE_ENABLED_KEY] ?: true,
+            favoriteRadioIds = preferences[FAVORITE_RADIO_IDS] ?: emptySet()
         )
     }
 
@@ -63,7 +67,8 @@ class SettingsRepository(private val context: Context) {
             preferences[HOME_LONG_PRESS_TYPE] = settings.homeLongPressType
             preferences[HOME_LONG_PRESS_VALUE] = settings.homeLongPressValue
             preferences[MAP_THEME_KEY] = settings.mapTheme
-            preferences[VOICE_ENABLED_KEY] = settings.isVoiceAssistantEnabled // ЗАПИСЬ
+            preferences[VOICE_ENABLED_KEY] = settings.isVoiceAssistantEnabled
+            preferences[FAVORITE_RADIO_IDS] = settings.favoriteRadioIds
         }
     }
 }

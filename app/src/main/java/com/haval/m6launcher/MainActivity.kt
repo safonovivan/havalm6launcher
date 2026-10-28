@@ -68,9 +68,7 @@ class MainActivity : ComponentActivity() {
             try {
                 MapKitFactory.setApiKey(apiKey)
                 MapKitFactory.initialize(this)
-            } catch (e: Throwable) {
-                Toast.makeText(this, "Ошибка инициализации карт: ${e.message}", Toast.LENGTH_LONG).show()
-            }
+            } catch (e: Throwable) { Toast.makeText(this, "Ошибка инициализации карт: ${e.message}", Toast.LENGTH_LONG).show() }
         }
 
         setContent {
@@ -82,12 +80,7 @@ class MainActivity : ComponentActivity() {
                 val mStartActivity = Intent(context, MainActivity::class.java)
                 mStartActivity.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
                 val mPendingIntentId = 123456
-                val mPendingIntent = PendingIntent.getActivity(
-                    context,
-                    mPendingIntentId,
-                    mStartActivity,
-                    PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
+                val mPendingIntent = PendingIntent.getActivity(context, mPendingIntentId, mStartActivity, PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 val mgr = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 mgr.set(AlarmManager.RTC, System.currentTimeMillis() + 100, mPendingIntent)
                 System.exit(0)
@@ -96,11 +89,8 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(settings.isFullScreen) {
                 isFullScreenSetting = settings.isFullScreen
                 val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
-                if (settings.isFullScreen) {
-                    windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
-                } else {
-                    windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
-                }
+                if (settings.isFullScreen) windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
+                else windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
                 windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
 
@@ -112,39 +102,18 @@ class MainActivity : ComponentActivity() {
                         when (type) {
                             "app" -> {
                                 val intent = context.packageManager.getLaunchIntentForPackage(value)
-                                if (intent != null) {
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                } else {
-                                    Toast.makeText(context, "Приложение не найдено", Toast.LENGTH_SHORT).show()
-                                }
+                                if (intent != null) { intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(intent) }
+                                else Toast.makeText(context, "Приложение не найдено", Toast.LENGTH_SHORT).show()
                             }
                             "action" -> {
                                 try {
                                     when (value) {
-                                        "recents" -> {
-                                            val intent = Intent("com.android.systemui.recent.action.SHOW_RECENT_APPS")
-                                            context.startActivity(intent)
-                                        }
-                                        "android_settings" -> {
-                                            val intent = Intent(android.provider.Settings.ACTION_SETTINGS)
-                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(intent)
-                                        }
-                                        "browser" -> {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://yandex.ru"))
-                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(intent)
-                                        }
-                                        "dialer" -> {
-                                            val intent = Intent(Intent.ACTION_DIAL)
-                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(intent)
-                                        }
+                                        "recents" -> context.startActivity(Intent("com.android.systemui.recent.action.SHOW_RECENT_APPS"))
+                                        "android_settings" -> { val intent = Intent(android.provider.Settings.ACTION_SETTINGS); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(intent) }
+                                        "browser" -> { val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://yandex.ru")); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(intent) }
+                                        "dialer" -> { val intent = Intent(Intent.ACTION_DIAL); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(intent) }
                                     }
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Действие не поддерживается", Toast.LENGTH_SHORT).show()
-                                }
+                                } catch (e: Exception) { Toast.makeText(context, "Действие не поддерживается", Toast.LENGTH_SHORT).show() }
                             }
                         }
                     },
@@ -154,16 +123,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        if (apiKey.isNotBlank()) MapKitFactory.getInstance().onStart()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        if (apiKey.isNotBlank()) MapKitFactory.getInstance().onStop()
-    }
-
+    override fun onStart() { super.onStart(); if (apiKey.isNotBlank()) MapKitFactory.getInstance().onStart() }
+    override fun onStop() { super.onStop(); if (apiKey.isNotBlank()) MapKitFactory.getInstance().onStop() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && isFullScreenSetting) {
@@ -185,49 +146,29 @@ fun MainLauncherContent(
     val currentRoute = navBackStackEntry?.destination?.route
     val context = LocalContext.current
 
-    // === ЕДИНЫЙ ЦЕНТР РАЗРЕШЕНИЙ И ЛОГИКИ МУЗЫКИ ===
     var hasPermission by remember {
         mutableStateOf(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
-            } else {
-                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+            else ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         )
     }
-
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        hasPermission = isGranted
-    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted -> hasPermission = isGranted }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
-            try {
-                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-            } catch (e: Exception) { }
+            try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
             MusicPlayerState.loadTracksFromFolder(context, uri)
         }
     }
 
     val handleScan = {
-        if (hasPermission) {
-            MusicPlayerState.loadDeviceMusic(context)
-        } else {
-            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
-            permissionLauncher.launch(permission)
-        }
+        if (hasPermission) MusicPlayerState.loadDeviceMusic(context)
+        else { val p = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE; permissionLauncher.launch(p) }
     }
-
     val handlePickFolder = {
-        if (hasPermission) {
-            folderPickerLauncher.launch(null)
-        } else {
-            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
-            permissionLauncher.launch(permission)
-        }
+        if (hasPermission) folderPickerLauncher.launch(null)
+        else { val p = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE; permissionLauncher.launch(p) }
     }
-    // ===============================================
 
     val startVoiceInput = {
         var launched = false
@@ -238,28 +179,18 @@ fun MainLauncherContent(
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         if (recognizerIntent.resolveActivity(context.packageManager) != null) {
-            try {
-                context.startActivity(recognizerIntent)
-                launched = true
-            } catch (e: Exception) {}
+            try { context.startActivity(recognizerIntent); launched = true } catch (e: Exception) {}
         }
         if (!launched) {
             val voiceCommandIntent = Intent(Intent.ACTION_VOICE_COMMAND).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
             if (voiceCommandIntent.resolveActivity(context.packageManager) != null) {
-                try {
-                    context.startActivity(voiceCommandIntent)
-                    launched = true
-                } catch (e: Exception) {}
+                try { context.startActivity(voiceCommandIntent); launched = true } catch (e: Exception) {}
             }
         }
-        if (!launched) {
-            Toast.makeText(context, "Голосовой ввод не найден на этом устройстве", Toast.LENGTH_SHORT).show()
-        }
+        if (!launched) Toast.makeText(context, "Голосовой ввод не найден на этом устройстве", Toast.LENGTH_SHORT).show()
     }
 
-    Row(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-    ) {
+    Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LeftNavigationPanel(
             modifier = Modifier.width(100.dp).fillMaxHeight(),
             currentRoute = currentRoute,
@@ -270,35 +201,13 @@ fun MainLauncherContent(
             onVoiceClick = startVoiceInput
         )
 
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier.fillMaxSize().padding(settings.contentPadding.dp)
-        ) {
-            composable("home") {
-                HomeScreen(onScanMedia = handleScan, onPickFolder = handlePickFolder)
-            }
-            composable("nav") {
-                NavigatorScreen(
-                    apiKey = settings.yandexMapApiKey,
-                    mapTheme = settings.mapTheme,
-                    onNavigateToSettings = { navController.navigate("settings") },
-                    onScanMedia = handleScan,
-                    onPickFolder = handlePickFolder
-                )
-            }
-            composable("music") {
-                MusicScreen(onScanMedia = handleScan, onPickFolder = handlePickFolder)
-            }
+        NavHost(navController = navController, startDestination = "home", modifier = Modifier.fillMaxSize().padding(settings.contentPadding.dp)) {
+            composable("home") { HomeScreen(settings = settings, onSettingsChange = onSettingsChange, onScanMedia = handleScan, onPickFolder = handlePickFolder) }
+            composable("nav") { NavigatorScreen(apiKey = settings.yandexMapApiKey, mapTheme = settings.mapTheme, onNavigateToSettings = { navController.navigate("settings") }, settings = settings, onSettingsChange = onSettingsChange, onScanMedia = handleScan, onPickFolder = handlePickFolder) }
+            composable("music") { MusicScreen(settings = settings, onSettingsChange = onSettingsChange, onScanMedia = handleScan, onPickFolder = handlePickFolder) }
             composable("obd") { ObdScreen() }
             composable("apps") { AppsScreen() }
-            composable("settings") {
-                SettingsScreen(
-                    settings = settings,
-                    onSettingsChange = onSettingsChange,
-                    onRestartApp = onRestartApp
-                )
-            }
+            composable("settings") { SettingsScreen(settings = settings, onSettingsChange = onSettingsChange, onRestartApp = onRestartApp) }
         }
     }
 }
