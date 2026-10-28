@@ -19,8 +19,8 @@ data class UserSettings(
     val homeDoubleTapValue: String = "",
     val homeLongPressType: String = "none",
     val homeLongPressValue: String = "",
-    // НОВОЕ ПОЛЕ: тема карты ("light", "dark", "auto")
-    val mapTheme: String = "auto"
+    val mapTheme: String = "auto",
+    val isVoiceAssistantEnabled: Boolean = true // НОВОЕ ПОЛЕ
 )
 
 class SettingsRepository(private val context: Context) {
@@ -33,8 +33,8 @@ class SettingsRepository(private val context: Context) {
         val HOME_DOUBLE_TAP_VALUE = stringPreferencesKey("home_double_tap_value")
         val HOME_LONG_PRESS_TYPE = stringPreferencesKey("home_long_press_type")
         val HOME_LONG_PRESS_VALUE = stringPreferencesKey("home_long_press_value")
-        // НОВЫЙ КЛЮЧ
         val MAP_THEME_KEY = stringPreferencesKey("map_theme")
+        val VOICE_ENABLED_KEY = booleanPreferencesKey("voice_enabled") // НОВЫЙ КЛЮЧ
     }
 
     val userSettings = context.dataStore.data.map { preferences ->
@@ -47,7 +47,8 @@ class SettingsRepository(private val context: Context) {
             homeDoubleTapValue = preferences[HOME_DOUBLE_TAP_VALUE] ?: "",
             homeLongPressType = preferences[HOME_LONG_PRESS_TYPE] ?: "none",
             homeLongPressValue = preferences[HOME_LONG_PRESS_VALUE] ?: "",
-            mapTheme = preferences[MAP_THEME_KEY] ?: "auto"
+            mapTheme = preferences[MAP_THEME_KEY] ?: "auto",
+            isVoiceAssistantEnabled = preferences[VOICE_ENABLED_KEY] ?: true // ЧТЕНИЕ
         )
     }
 
@@ -62,6 +63,7 @@ class SettingsRepository(private val context: Context) {
             preferences[HOME_LONG_PRESS_TYPE] = settings.homeLongPressType
             preferences[HOME_LONG_PRESS_VALUE] = settings.homeLongPressValue
             preferences[MAP_THEME_KEY] = settings.mapTheme
+            preferences[VOICE_ENABLED_KEY] = settings.isVoiceAssistantEnabled // ЗАПИСЬ
         }
     }
 }

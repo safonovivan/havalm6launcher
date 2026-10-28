@@ -20,9 +20,11 @@ import com.haval.m6launcher.ui.navigation.menuItems
 fun LeftNavigationPanel(
     modifier: Modifier = Modifier,
     currentRoute: String?,
+    isVoiceAssistantEnabled: Boolean, // НОВЫЙ ПАРАМЕТР
     onItemClick: (String) -> Unit,
-    onHomeDoubleTap: () -> Unit,  // Новый коллбэк
-    onHomeLongPress: () -> Unit   // Новый коллбэк
+    onHomeDoubleTap: () -> Unit,
+    onHomeLongPress: () -> Unit,
+    onVoiceClick: () -> Unit // НОВЫЙ КОЛЛБЭК
 ) {
     Column(
         modifier = modifier
@@ -33,7 +35,12 @@ fun LeftNavigationPanel(
     ) {
         Spacer(modifier = Modifier.weight(1f))
 
-        menuItems.forEach { item ->
+        // Фильтруем меню: если голосовой помощник выключен, убираем иконку "voice"
+        val filteredMenuItems = menuItems.filter {
+            it.route != "voice" || isVoiceAssistantEnabled
+        }
+
+        filteredMenuItems.forEach { item ->
             val isSelected = currentRoute == item.route
 
             Box(
@@ -42,7 +49,13 @@ fun LeftNavigationPanel(
                     .clip(RoundedCornerShape(16.dp))
                     .background(if (isSelected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f) else Color.Transparent)
                     .combinedClickable(
-                        onClick = { onItemClick(item.route) },
+                        onClick = {
+                            if (item.route == "voice") {
+                                onVoiceClick() // Если это голос, вызываем интент
+                            } else {
+                                onItemClick(item.route) // Иначе навигация
+                            }
+                        },
                         onDoubleClick = {
                             if (item.route == "home") {
                                 onHomeDoubleTap()

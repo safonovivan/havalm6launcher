@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.speech.RecognizerIntent // НОВЫЙ ИМПОРТ
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -58,8 +59,7 @@ class MainActivity : ComponentActivity() {
             try {
                 MapKitFactory.setApiKey(apiKey)
                 MapKitFactory.initialize(this)
-                // com.yandex.mapkit.directions.DirectionsFactory.initialize(this)
-            } catch (e: Throwable) { // Изменено на Throwable для отлова ошибок нативных библиотек
+            } catch (e: Throwable) {
                 Toast.makeText(this, "Ошибка инициализации карт: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
@@ -69,9 +69,6 @@ class MainActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
             val context = LocalContext.current
 
-            // ==========================================
-            // ИСПРАВЛЕННАЯ ФУНКЦИЯ ПЕРЕЗАПУСКА (ЧЕРЕЗ ALARM_MANAGER)
-            // ==========================================
             val restartApp = {
                 val mStartActivity = Intent(context, MainActivity::class.java)
                 mStartActivity.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -83,11 +80,9 @@ class MainActivity : ComponentActivity() {
                     PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 val mgr = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                // Запускаем через 100 мс и убиваем процесс
                 mgr.set(AlarmManager.RTC, System.currentTimeMillis() + 100, mPendingIntent)
                 System.exit(0)
             }
-            // ==========================================
 
             LaunchedEffect(settings.isFullScreen) {
                 isFullScreenSetting = settings.isFullScreen
@@ -179,6 +174,50 @@ fun MainLauncherContent(
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val context = LocalContext.current
+
+    // ФУНКЦИЯ ЗАПУСКА ГОЛОСОВОГО ПОМОЩНИКА (АДАПТИРОВАНА ПОД ANDROID 9 / ГУ БЕЗ GOOGLE, ПРИОРИТЕТ НА РУССКИЙ ЯЗЫК)
+
+    val startVoiceInput = {
+        var launched = false
+
+        // --- Попытка 1: Стандартный распознаватель речи (Работает везде, знает русский) ---
+        val recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU") // Жестко задаем русский язык
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Слушаю...")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        if (recognizerIntent.resolveActivity(context.packageManager) != null) {
+            try {
+                context.startActivity(recognizerIntent)
+                launched = true
+            } catch (e: Exception) {
+                // Если что-то пошло не так, идем дальше
+            }
+        }
+
+        // --- Попытка 2: Системный голосовой ассистент (Google, Алиса и т.д.) ---
+        if (!launched) {
+            val voiceCommandIntent = Intent(Intent.ACTION_VOICE_COMMAND).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (voiceCommandIntent.resolveActivity(context.packageManager) != null) {
+                try {
+                    context.startActivity(voiceCommandIntent)
+                    launched = true
+                } catch (e: Exception) {
+                    // Не сработало
+                }
+            }
+        }
+
+        // --- Если вообще ничего не нашли ---
+        if (!launched) {
+            Toast.makeText(context, "Голосовой ввод не найден на этом устройстве", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Row(
         modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
@@ -186,9 +225,11 @@ fun MainLauncherContent(
         LeftNavigationPanel(
             modifier = Modifier.width(100.dp).fillMaxHeight(),
             currentRoute = currentRoute,
+            isVoiceAssistantEnabled = settings.isVoiceAssistantEnabled,
             onItemClick = { route -> navController.navigate(route) { popUpTo(navController.graph.startDestinationId) { saveState = true }; launchSingleTop = true; restoreState = true } },
             onHomeDoubleTap = { executeAction(settings.homeDoubleTapType, settings.homeDoubleTapValue) },
-            onHomeLongPress = { executeAction(settings.homeLongPressType, settings.homeLongPressValue) }
+            onHomeLongPress = { executeAction(settings.homeLongPressType, settings.homeLongPressValue) },
+            onVoiceClick = startVoiceInput
         )
 
         NavHost(
@@ -214,7 +255,7 @@ fun MainLauncherContent(
                     onRestartApp = onRestartApp
                 )
             }
-            composable("voice") { VoiceScreen() }
+            // composable("voice") удалён — экран больше не нужен
         }
     }
 }

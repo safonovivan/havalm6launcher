@@ -340,8 +340,11 @@ fun SettingsScreen(
             Switch(checked = settings.isDarkTheme, onCheckedChange = { onSettingsChange(settings.copy(isDarkTheme = it)) })
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Полноэкранный режим", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
-            Switch(checked = settings.isFullScreen, onCheckedChange = { onSettingsChange(settings.copy(isFullScreen = it)) })
+            Text("Голосовой помощник", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+            Switch(
+                checked = settings.isVoiceAssistantEnabled,
+                onCheckedChange = { onSettingsChange(settings.copy(isVoiceAssistantEnabled = it)) }
+            )
         }
         Column {
             Text("Отступы контента (${settings.contentPadding} dp)", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
@@ -595,4 +598,3 @@ fun getAppNameByPackage(packageName: String): String {
 }
 
 @Composable fun ObdScreen() = PlaceholderScreen("Параметры авто (OBD)")
-@Composable fun VoiceScreen() = PlaceholderScreen("Голосовой помощник")
