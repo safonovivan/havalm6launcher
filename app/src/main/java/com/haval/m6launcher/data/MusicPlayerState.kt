@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.provider.MediaStore
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -14,6 +13,10 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.nio.charset.Charset
 
 enum class PlayerType { LOCAL, YANDEX, RADIO, FMPLAY }
@@ -45,18 +48,172 @@ object MusicPlayerState {
 
     private var exoPlayer: ExoPlayer? = null
 
+    fun savePlaybackStateOnStop(context: Context) {
+        if (activePlayer == PlayerType.LOCAL && currentIndex != -1) {
+            val pos = exoPlayer?.currentPosition?.toInt() ?: 0
+            val repo = SettingsRepository(context.applicationContext)
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val settings = repo.userSettings.first()
+                    repo.updateSettings(settings.copy(lastTrackIndex = currentIndex, lastTrackPosition = pos))
+                } catch (e: Exception) { }
+            }
+        }
+    }
+
+    suspend fun restoreState(context: Context, settingsRepo: SettingsRepository) {
+        val settings = settingsRepo.userSettings.first()
+
+        // 1. ЗАГРУЖАЕМ ЛОКАЛЬНЫЙ ПЛЕЙЛИСТ
+        if (settings.lastFolderUri.isNotBlank()) {
+            val documentFile = DocumentFile.fromTreeUri(context, Uri.parse(settings.lastFolderUri))
+            if (documentFile != null && documentFile.isDirectory) {
+                val newTracks = mutableListOf<Track>()
+                scanDirectory(context, documentFile, newTracks)
+                if (newTracks.isNotEmpty()) {
+                    playlist.clear()
+                    playlist.addAll(newTracks)
+
+                    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Устанавливаем индекс трека из настроек сразу при загрузке!
+                    val safeIndex = settings.lastTrackIndex.coerceIn(0, playlist.size - 1)
+                    currentIndex = safeIndex
+                    currentPosition = settings.lastTrackPosition // Восстанавливаем и секунду
+
+                    // Обновляем данные для UI
+                    val track = playlist[safeIndex]
+                    currentTitle = track.title
+                    currentArtist = track.artist
+                    currentAlbumArt = track.albumArt
+                }
+            }
+        }
+
+        // 2. ЗАГРУЖАЕМ РАДИО
+        val (stations, _) = FmPlayApi.fetchStations(context)
+        if (stations.isNotEmpty()) {
+            val favorites = stations.filter { settings.favoriteRadioIds.contains(it.id) }
+            val savedStation = stations.find { it.id == settings.lastRadioStationId }
+            val stationToPlay = if (favorites.any { it.id == savedStation?.id }) savedStation else favorites.firstOrNull() ?: stations.first()
+
+            currentRadioStation = stationToPlay
+            currentRadioQueue.clear()
+            currentRadioQueue.addAll(stations)
+            currentRadioIndex = stations.indexOf(stationToPlay)
+        }
+
+        // 3. ВОССТАНАВЛИВАЕМ АКТИВНЫЙ ПЛЕЕР
+        activePlayer = try { PlayerType.valueOf(settings.lastActivePlayer) } catch (e: Exception) { PlayerType.LOCAL }
+
+        if (activePlayer == PlayerType.LOCAL && playlist.isNotEmpty()) {
+            if (settings.isAutoPlayEnabled) {
+                playTrack(context, currentIndex, currentPosition, autoPlay = true)
+            }
+        } else if (activePlayer == PlayerType.FMPLAY && currentRadioStation != null) {
+            if (settings.isAutoPlayEnabled) {
+                playRadioStream(context, currentRadioStation!!, currentRadioQueue.toList(), autoPlay = true)
+            }
+        }
+    }
+
+    fun switchPlayer(context: Context, newPlayer: PlayerType) {
+        if (activePlayer == newPlayer) return
+
+        val repo = SettingsRepository(context.applicationContext)
+
+        if (activePlayer == PlayerType.LOCAL && currentIndex != -1) {
+            val pos = exoPlayer?.currentPosition?.toInt() ?: 0
+            currentPosition = pos
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val settings = repo.userSettings.first()
+                    repo.updateSettings(settings.copy(lastTrackIndex = currentIndex, lastTrackPosition = pos))
+                } catch (e: Exception) { }
+            }
+        }
+
+        if (exoPlayer?.isPlaying == true) exoPlayer?.pause()
+        activePlayer = newPlayer
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val settings = repo.userSettings.first()
+                repo.updateSettings(settings.copy(
+                    lastActivePlayer = newPlayer.name,
+                    lastRadioStationId = if (newPlayer == PlayerType.FMPLAY) currentRadioStation?.id ?: "" else settings.lastRadioStationId
+                ))
+            } catch (e: Exception) { }
+        }
+
+        when (newPlayer) {
+            PlayerType.LOCAL -> {
+                if (playlist.isNotEmpty()) {
+                    // Используем сохраненный currentIndex (который мы восстановили при старте)
+                    val safeIndex = if (currentIndex in 0 until playlist.size) currentIndex else 0
+                    currentIndex = safeIndex
+                    val track = playlist[safeIndex]
+                    currentTitle = track.title
+                    currentArtist = track.artist
+                    currentAlbumArt = track.albumArt
+                    // Воспроизводим с сохраненной позиции
+                    playTrack(context, safeIndex, currentPosition, autoPlay = true)
+                } else {
+                    currentTitle = "Нажмите папку, чтобы выбрать MP3"
+                    currentArtist = "Неизвестный исполнитель"
+                    currentAlbumArt = null
+                }
+            }
+            PlayerType.FMPLAY -> {
+                if (currentRadioStation != null) {
+                    currentTitle = currentRadioStation!!.name
+                    currentArtist = "Интернет-радио"
+                    currentAlbumArt = null
+                    val queue = if (currentRadioQueue.isNotEmpty()) currentRadioQueue.toList() else listOf(currentRadioStation!!)
+                    playRadioStream(context, currentRadioStation!!, queue, autoPlay = true)
+                } else {
+                    currentTitle = "Выберите станцию"
+                    currentArtist = "Интернет-радио"
+                    currentAlbumArt = null
+                }
+            }
+            else -> {}
+        }
+    }
+
+    fun togglePlayPause(context: Context) {
+        if (isPlaying) {
+            val currentPos = exoPlayer?.currentPosition?.toInt() ?: 0
+            exoPlayer?.pause()
+
+            if (activePlayer == PlayerType.LOCAL && currentIndex != -1) {
+                val repo = SettingsRepository(context.applicationContext)
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val settings = repo.userSettings.first()
+                        repo.updateSettings(settings.copy(lastTrackIndex = currentIndex, lastTrackPosition = currentPos))
+                    } catch (e: Exception) { }
+                }
+            }
+        } else {
+            if (activePlayer == PlayerType.FMPLAY) {
+                if (currentRadioStation != null) {
+                    val queue = if (currentRadioQueue.isNotEmpty()) currentRadioQueue.toList() else listOf(currentRadioStation!!)
+                    playRadioStream(context, currentRadioStation!!, queue, autoPlay = true)
+                }
+            } else if (activePlayer == PlayerType.LOCAL) {
+                if (playlist.isNotEmpty()) {
+                    val safeIndex = if (currentIndex in 0 until playlist.size) currentIndex else 0
+                    playTrack(context, safeIndex, currentPosition, autoPlay = true)
+                }
+            }
+        }
+    }
+
     private fun initExoPlayer(context: Context) {
         if (exoPlayer == null) {
             exoPlayer = ExoPlayer.Builder(context).build().apply {
                 addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(isPlayingNow: Boolean) {
-                        MusicPlayerState.isPlaying = isPlayingNow
-                    }
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED) {
-                            nextTrack(context)
-                        }
-                    }
+                    override fun onIsPlayingChanged(isPlayingNow: Boolean) { MusicPlayerState.isPlaying = isPlayingNow }
+                    override fun onPlaybackStateChanged(playbackState: Int) { if (playbackState == Player.STATE_ENDED) nextTrack(context) }
                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                         MusicPlayerState.playbackError = "Ошибка ExoPlayer: ${error.errorCodeName}"
                         MusicPlayerState.isPlaying = false
@@ -66,17 +223,29 @@ object MusicPlayerState {
         }
     }
 
-    fun playRadioStream(context: Context, station: FmPlayStation, queue: List<FmPlayStation>) {
+    fun playRadioStream(context: Context, station: FmPlayStation, queue: List<FmPlayStation>, autoPlay: Boolean = true) {
         initExoPlayer(context)
         playbackError = null
         activePlayer = PlayerType.FMPLAY
 
-        // ИСПРАВЛЕНИЕ БАГА: Делаем копию списка перед очисткой
-        val safeQueue = queue.toList()
-        currentRadioQueue.clear()
-        currentRadioQueue.addAll(safeQueue)
+        val repo = SettingsRepository(context.applicationContext)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val settings = repo.userSettings.first()
+                repo.updateSettings(settings.copy(lastActivePlayer = "FMPLAY", lastRadioStationId = station.id))
+            } catch (e: Exception) { }
+        }
 
-        currentRadioIndex = safeQueue.indexOfFirst { it.id == station.id }
+        val safeQueue = queue.toList()
+        if (safeQueue.isNotEmpty()) {
+            currentRadioQueue.clear()
+            currentRadioQueue.addAll(safeQueue)
+            currentRadioIndex = safeQueue.indexOfFirst { it.id == station.id }.coerceAtLeast(0)
+        } else {
+            currentRadioQueue.clear()
+            currentRadioQueue.add(station)
+            currentRadioIndex = 0
+        }
 
         currentRadioStation = station
         currentTitle = station.name
@@ -90,44 +259,11 @@ object MusicPlayerState {
             clearMediaItems()
             setMediaItem(MediaItem.fromUri(station.streamUrl))
             prepare()
-            playWhenReady = true
+            playWhenReady = autoPlay
         }
     }
 
-    fun loadDeviceMusic(context: Context) {
-        val musicList = mutableListOf<Track>()
-        val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST)
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-        val cursor = context.contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection, selection, null, "${MediaStore.Audio.Media.TITLE} ASC")
-
-        cursor?.use {
-            val idCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val titleCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val artistCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-
-            while (it.moveToNext()) {
-                val id = it.getLong(idCol)
-                val title = fixEncoding(it.getString(titleCol) ?: "Без названия")
-                val artist = fixEncoding(it.getString(artistCol) ?: "Неизвестен")
-                val uri = Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString())
-
-                var art: Bitmap? = null
-                val retriever = MediaMetadataRetriever()
-                try {
-                    retriever.setDataSource(context, uri)
-                    val artBytes = retriever.embeddedPicture
-                    if (artBytes != null) art = BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
-                } catch (e: Exception) {} finally { retriever.release() }
-
-                musicList.add(Track(uri, title, artist, art))
-            }
-        }
-        playlist.clear()
-        playlist.addAll(musicList)
-        if (playlist.isNotEmpty()) playTrack(context, 0)
-    }
-
-    fun loadTracksFromFolder(context: Context, treeUri: Uri) {
+    fun loadTracksFromFolder(context: Context, treeUri: Uri, autoPlay: Boolean = true) {
         val documentFile = DocumentFile.fromTreeUri(context, treeUri)
         if (documentFile != null && documentFile.isDirectory) {
             val newTracks = mutableListOf<Track>()
@@ -135,7 +271,25 @@ object MusicPlayerState {
             if (newTracks.isNotEmpty()) {
                 playlist.clear()
                 playlist.addAll(newTracks)
-                playTrack(context, 0)
+                currentIndex = 0
+                currentPosition = 0
+
+                val repo = SettingsRepository(context.applicationContext)
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val settings = repo.userSettings.first()
+                        repo.updateSettings(settings.copy(lastActivePlayer = "LOCAL", lastFolderUri = treeUri.toString(), lastTrackIndex = 0, lastTrackPosition = 0))
+                    } catch (e: Exception) { }
+                }
+
+                if (autoPlay) {
+                    playTrack(context, 0, 0, autoPlay = true)
+                } else {
+                    val track = playlist[0]
+                    currentTitle = track.title
+                    currentArtist = track.artist
+                    currentAlbumArt = track.albumArt
+                }
             }
         }
     }
@@ -151,25 +305,46 @@ object MusicPlayerState {
                 if (mime.startsWith("audio/") || rawName.endsWith(".mp3", true) || rawName.endsWith(".flac", true) || rawName.endsWith(".wav", true)) {
                     val uri = file.uri
                     val retriever = MediaMetadataRetriever()
-                    var title = Uri.decode(rawName)
-                    var artist = "Неизвестный исполнитель"
+
+                    var title = ""
+                    var artist = ""
                     var art: Bitmap? = null
+
                     try {
                         retriever.setDataSource(context, uri)
-                        val metaTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                        val metaArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
-                        if (!metaTitle.isNullOrBlank()) title = fixEncoding(metaTitle)
-                        if (!metaArtist.isNullOrBlank()) artist = fixEncoding(metaArtist)
+                        // ИСПРАВЛЕНИЕ: Обрезаем невидимые пробелы с помощью .trim()
+                        title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.trim() ?: ""
+                        artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.trim() ?: ""
                         val artBytes = retriever.embeddedPicture
                         if (artBytes != null) art = BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
                     } catch (e: Exception) {} finally { retriever.release() }
+
+                    // УМНЫЙ ПАРСЕР
+                    if (title.isBlank()) {
+                        val nameWithoutExt = Uri.decode(rawName).substringBeforeLast(".").trim()
+                        if (nameWithoutExt.contains(" - ")) {
+                            val parts = nameWithoutExt.split(" - ", limit = 2)
+                            artist = parts[0].trim()
+                            title = parts[1].trim()
+                        } else {
+                            title = nameWithoutExt
+                        }
+                    }
+
+                    if (artist.isBlank() || artist.equals("<unknown>", ignoreCase = true)) {
+                        artist = "Неизвестный исполнитель"
+                    }
+
+                    title = fixEncoding(title).trim()
+                    artist = fixEncoding(artist).trim()
+
                     tracks.add(Track(uri, title, artist, art))
                 }
             }
         }
     }
 
-    fun playTrack(context: Context, index: Int) {
+    fun playTrack(context: Context, index: Int, startPosition: Int = 0, autoPlay: Boolean = true) {
         if (index < 0 || index >= playlist.size) return
         initExoPlayer(context)
         currentIndex = index
@@ -179,18 +354,23 @@ object MusicPlayerState {
         currentAlbumArt = track.albumArt
         activePlayer = PlayerType.LOCAL
 
+        currentPosition = startPosition
+
+        val repo = SettingsRepository(context.applicationContext)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val settings = repo.userSettings.first()
+                repo.updateSettings(settings.copy(lastTrackIndex = index, lastTrackPosition = startPosition))
+            } catch (e: Exception) { }
+        }
+
         exoPlayer?.apply {
             stop()
             clearMediaItems()
             setMediaItem(MediaItem.fromUri(track.uri))
             prepare()
-            playWhenReady = true
-        }
-    }
-
-    fun togglePlayPause() {
-        exoPlayer?.let { player ->
-            if (player.isPlaying) player.pause() else player.play()
+            if (startPosition > 0) seekTo(startPosition.toLong())
+            playWhenReady = autoPlay
         }
     }
 
@@ -198,14 +378,13 @@ object MusicPlayerState {
         if (activePlayer == PlayerType.FMPLAY) {
             if (currentRadioQueue.isNotEmpty() && currentRadioIndex != -1) {
                 val nextIdx = (currentRadioIndex + 1) % currentRadioQueue.size
-                playRadioStream(context, currentRadioQueue[nextIdx], currentRadioQueue)
+                playRadioStream(context, currentRadioQueue[nextIdx], currentRadioQueue.toList())
             }
             return
         }
-
         if (playlist.isNotEmpty()) {
             val nextIndex = (currentIndex + 1) % playlist.size
-            playTrack(context, nextIndex)
+            playTrack(context, nextIndex, 0)
         }
     }
 
@@ -213,14 +392,13 @@ object MusicPlayerState {
         if (activePlayer == PlayerType.FMPLAY) {
             if (currentRadioQueue.isNotEmpty() && currentRadioIndex != -1) {
                 val prevIdx = if (currentRadioIndex - 1 < 0) currentRadioQueue.size - 1 else currentRadioIndex - 1
-                playRadioStream(context, currentRadioQueue[prevIdx], currentRadioQueue)
+                playRadioStream(context, currentRadioQueue[prevIdx], currentRadioQueue.toList())
             }
             return
         }
-
         if (playlist.isNotEmpty()) {
             val prevIndex = if (currentIndex - 1 < 0) playlist.size - 1 else currentIndex - 1
-            playTrack(context, prevIndex)
+            playTrack(context, prevIndex, 0)
         }
     }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay // <-- ДОБАВЛЕН ИМПОРТ
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,7 +40,12 @@ fun formatTime(ms: Int): String {
 }
 
 @Composable
-fun PlayerSwitcherButtons(modifier: Modifier = Modifier) {
+fun PlayerSwitcherButtons(
+    modifier: Modifier = Modifier,
+    onPlayerSwitch: () -> Unit = {}
+) {
+    val context = LocalContext.current
+
     Column(
         modifier = modifier.fillMaxHeight(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -50,7 +56,10 @@ fun PlayerSwitcherButtons(modifier: Modifier = Modifier) {
 
         buttons.forEach { type ->
             IconButton(
-                onClick = { MusicPlayerState.activePlayer = type },
+                onClick = {
+                    MusicPlayerState.switchPlayer(context, type)
+                    onPlayerSwitch()
+                },
                 modifier = Modifier.size(buttonSize).clip(RoundedCornerShape(12.dp)).background(if (MusicPlayerState.activePlayer == type) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
             ) {
                 if (type == PlayerType.YANDEX) {
@@ -83,7 +92,7 @@ fun PlayerControls(modifier: Modifier = Modifier, largeIcons: Boolean = false) {
         IconButton(onClick = { MusicPlayerState.previousTrack(context) }, modifier = Modifier.size(secondaryButtonSize)) {
             Icon(Icons.Default.SkipPrevious, "Previous", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), modifier = Modifier.size(secondaryButtonSize * 0.8f))
         }
-        IconButton(onClick = { MusicPlayerState.togglePlayPause() }, modifier = Modifier.size(mainButtonSize)) {
+        IconButton(onClick = { MusicPlayerState.togglePlayPause(context) }, modifier = Modifier.size(mainButtonSize)) {
             Icon(
                 imageVector = if (MusicPlayerState.isPlaying) Icons.Default.PauseCircleFilled else Icons.Default.PlayCircleFilled,
                 contentDescription = "Play/Pause",
@@ -124,17 +133,20 @@ fun PlaylistToggleButton(showPlaylist: Boolean, text: String = "Плейлист
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), contentColor = MaterialTheme.colorScheme.primary),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Icon(if (showPlaylist) Icons.AutoMirrored.Filled.ArrowBack else Icons.Default.PlaylistPlay, "Toggle", modifier = Modifier.size(28.dp))
+        Icon(if (showPlaylist) Icons.AutoMirrored.Filled.ArrowBack else Icons.AutoMirrored.Filled.PlaylistPlay, "Toggle", modifier = Modifier.size(28.dp))
         Spacer(modifier = Modifier.width(8.dp))
         Text(if (showPlaylist) "Назад" else text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-fun PlaylistActionButtons(onScanMedia: () -> Unit, onPickFolder: () -> Unit, modifier: Modifier = Modifier) {
+fun PlaylistActionButtons(onPickFolder: () -> Unit, modifier: Modifier = Modifier) {
     Row(modifier = modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = onScanMedia, modifier = Modifier.weight(1f)) { Icon(Icons.Default.LibraryMusic, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Скан", fontSize = 12.sp) }
-        Button(onClick = onPickFolder, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Folder, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Папка", fontSize = 12.sp) }
+        Button(onClick = onPickFolder, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Default.Folder, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Выбрать папку", fontSize = 14.sp)
+        }
     }
 }
 
@@ -143,7 +155,6 @@ fun HomeMusicWidget(
     modifier: Modifier = Modifier,
     settings: UserSettings,
     onSettingsChange: (UserSettings) -> Unit,
-    onScanMedia: () -> Unit,
     onPickFolder: () -> Unit
 ) {
     val context = LocalContext.current
@@ -157,12 +168,15 @@ fun HomeMusicWidget(
 
     Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
         Row(modifier = Modifier.padding(16.dp).fillMaxSize()) {
-            PlayerSwitcherButtons(modifier = Modifier.padding(end = 16.dp))
+            PlayerSwitcherButtons(
+                modifier = Modifier.padding(end = 16.dp),
+                onPlayerSwitch = { showPlaylist = false; showRadioList = false }
+            )
             Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
 
                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    if (MusicPlayerState.activePlayer == PlayerType.LOCAL && !showPlaylist) {
-                        PlaylistToggleButton(showPlaylist = false, text = "Плейлист", onClick = { showPlaylist = true })
+                    if (MusicPlayerState.activePlayer == PlayerType.LOCAL) {
+                        PlaylistToggleButton(showPlaylist = showPlaylist, text = "Плейлист", onClick = { showPlaylist = !showPlaylist })
                     }
                     if (MusicPlayerState.activePlayer == PlayerType.FMPLAY) {
                         PlaylistToggleButton(showPlaylist = showRadioList, text = "Радиостанции", onClick = { showRadioList = !showRadioList })
@@ -171,16 +185,8 @@ fun HomeMusicWidget(
 
                 when(MusicPlayerState.activePlayer) {
                     PlayerType.FMPLAY -> {
-                        if (!showRadioList) {
-                            FmPlayPlayerView(modifier = Modifier.weight(1f))
-                        } else {
-                            FmPlayRadioList(
-                                modifier = Modifier.weight(1f),
-                                settings = settings,
-                                onSettingsChange = onSettingsChange,
-                                onStationClick = { showRadioList = false } // АВТОЗАКРЫТИЕ
-                            )
-                        }
+                        if (!showRadioList) FmPlayPlayerView(modifier = Modifier.weight(1f))
+                        else FmPlayRadioList(modifier = Modifier.weight(1f), settings = settings, onSettingsChange = onSettingsChange, onStationClick = { showRadioList = false })
                     }
                     PlayerType.YANDEX -> YandexPlayerContent(modifier = Modifier.weight(1f))
                     PlayerType.RADIO -> RadioPlayerContent(modifier = Modifier.weight(1f))
@@ -189,7 +195,7 @@ fun HomeMusicWidget(
                             LocalPlayerView(modifier = Modifier.weight(1f).fillMaxWidth())
                         } else {
                             Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                PlaylistActionButtons(onScanMedia = onScanMedia, onPickFolder = onPickFolder)
+                                PlaylistActionButtons(onPickFolder = onPickFolder)
                                 if (MusicPlayerState.playlist.isEmpty()) {
                                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Плейлист пуст", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)) }
                                 } else {
@@ -213,7 +219,6 @@ fun NavPlayerPanel(
     modifier: Modifier = Modifier,
     settings: UserSettings,
     onSettingsChange: (UserSettings) -> Unit,
-    onScanMedia: () -> Unit,
     onPickFolder: () -> Unit
 ) {
     val context = LocalContext.current
@@ -227,12 +232,15 @@ fun NavPlayerPanel(
 
     Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(modifier = Modifier.padding(16.dp).fillMaxSize()) {
-            PlayerSwitcherButtons(modifier = Modifier.padding(end = 12.dp))
+            PlayerSwitcherButtons(
+                modifier = Modifier.padding(end = 12.dp),
+                onPlayerSwitch = { showPlaylist = false; showRadioList = false }
+            )
             Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
 
                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    if (MusicPlayerState.activePlayer == PlayerType.LOCAL && !showPlaylist) {
-                        PlaylistToggleButton(showPlaylist = false, text = "Плейлист", onClick = { showPlaylist = true })
+                    if (MusicPlayerState.activePlayer == PlayerType.LOCAL) {
+                        PlaylistToggleButton(showPlaylist = showPlaylist, text = "Плейлист", onClick = { showPlaylist = !showPlaylist })
                     }
                     if (MusicPlayerState.activePlayer == PlayerType.FMPLAY) {
                         PlaylistToggleButton(showPlaylist = showRadioList, text = "Радиостанции", onClick = { showRadioList = !showRadioList })
@@ -241,16 +249,8 @@ fun NavPlayerPanel(
 
                 when(MusicPlayerState.activePlayer) {
                     PlayerType.FMPLAY -> {
-                        if (!showRadioList) {
-                            FmPlayPlayerView(modifier = Modifier.weight(1f))
-                        } else {
-                            FmPlayRadioList(
-                                modifier = Modifier.weight(1f),
-                                settings = settings,
-                                onSettingsChange = onSettingsChange,
-                                onStationClick = { showRadioList = false } // АВТОЗАКРЫТИЕ
-                            )
-                        }
+                        if (!showRadioList) FmPlayPlayerView(modifier = Modifier.weight(1f))
+                        else FmPlayRadioList(modifier = Modifier.weight(1f), settings = settings, onSettingsChange = onSettingsChange, onStationClick = { showRadioList = false })
                     }
                     PlayerType.YANDEX -> YandexPlayerContent(modifier = Modifier.weight(1f))
                     PlayerType.RADIO -> RadioPlayerContent(modifier = Modifier.weight(1f))
@@ -259,7 +259,7 @@ fun NavPlayerPanel(
                             LocalPlayerView(modifier = Modifier.weight(1f).fillMaxWidth())
                         } else {
                             Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                PlaylistActionButtons(onScanMedia = onScanMedia, onPickFolder = onPickFolder)
+                                PlaylistActionButtons(onPickFolder = onPickFolder)
                                 if (MusicPlayerState.playlist.isEmpty()) {
                                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Плейлист пуст", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)) }
                                 } else {
@@ -282,11 +282,9 @@ fun NavPlayerPanel(
 fun FullPlayerContent(
     settings: UserSettings,
     onSettingsChange: (UserSettings) -> Unit,
-    onScanMedia: () -> Unit,
     onPickFolder: () -> Unit
 ) {
     val context = LocalContext.current
-    var activeTab by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(MusicPlayerState.currentIndex) {
@@ -294,7 +292,6 @@ fun FullPlayerContent(
     }
 
     Row(modifier = Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-
         Card(modifier = Modifier.weight(1f).fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
             Row(modifier = Modifier.padding(16.dp).fillMaxSize()) {
                 PlayerSwitcherButtons(modifier = Modifier.padding(end = 16.dp))
@@ -311,20 +308,19 @@ fun FullPlayerContent(
 
         Card(modifier = Modifier.weight(1f).fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
             when(MusicPlayerState.activePlayer) {
-                PlayerType.FMPLAY -> FmPlayRadioList(modifier = Modifier.padding(16.dp), settings = settings, onSettingsChange = onSettingsChange) // Тут не закрываем список
+                PlayerType.FMPLAY -> FmPlayRadioList(modifier = Modifier.padding(16.dp), settings = settings, onSettingsChange = onSettingsChange)
                 PlayerType.LOCAL -> {
                     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Button(onClick = { activeTab = 0 }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (activeTab == 0) MaterialTheme.colorScheme.surface else Color.Transparent)) { Text("Медиатека") }
-                            Button(onClick = { activeTab = 1 }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (activeTab == 1) MaterialTheme.colorScheme.surface else Color.Transparent)) { Text("Папка") }
+                        Button(onClick = onPickFolder, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Folder, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Выбрать папку с музыкой")
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        if (activeTab == 0) Button(onClick = onScanMedia, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.LibraryMusic, null); Spacer(Modifier.width(8.dp)); Text("Сканировать память") }
-                        else Button(onClick = onPickFolder, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Выбрать папку") }
 
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Плейлист (${MusicPlayerState.playlist.size})", fontSize = 18.sp)
                         Spacer(modifier = Modifier.height(8.dp))
+
                         if (MusicPlayerState.playlist.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Список пуст.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)) }
                         } else {

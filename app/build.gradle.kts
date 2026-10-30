@@ -5,26 +5,43 @@ plugins {
 
 android {
     namespace = "com.haval.m6launcher"
-    compileSdk {
-        version = release(37)
-    }
+
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.haval.m6launcher"
         minSdk = 28
-        targetSdk = 37
+        targetSdk = 28
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // НАСТРОЙКА РАЗДЕЛЬНЫХ APK
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64") // Машина и BlueStacks
+            isUniversalApk = true          // Соберет еще и один общий (на всякий случай)
+        }
+    }
+
     buildTypes {
         release {
-            optimization {
-                enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
-            }
+            // ВКЛЮЧАЕМ R8 (СЖАТИЕ КОДА)
+            isMinifyEnabled = true
+            // УДАЛЯЕМ НЕИСПОЛЬЗУЕМЫЕ РЕСУРСЫ (иконки, строки)
+            isShrinkResources = true
+
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+
+            // ВАЖНО: Подписываем debug-ключом, чтобы можно было сразу установить и протестировать!
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

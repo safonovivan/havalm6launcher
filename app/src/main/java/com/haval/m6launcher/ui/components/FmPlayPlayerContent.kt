@@ -1,15 +1,16 @@
 package com.haval.m6launcher.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState // НОВЫЙ ИМПОРТ
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState // НОВЫЙ ИМПОРТ
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -50,7 +51,13 @@ fun FmPlayPlayerView(modifier: Modifier = Modifier, largeIcons: Boolean = false)
             contentAlignment = Alignment.Center
         ) {
             Box(
-                modifier = Modifier.aspectRatio(1f).fillMaxHeight().clip(RoundedCornerShape(if (largeIcons) 32.dp else 16.dp)).background(MaterialTheme.colorScheme.background),
+                modifier = Modifier
+                    .aspectRatio(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(if (largeIcons) 32.dp else 16.dp))
+                    .background(MaterialTheme.colorScheme.background)
+                    // ИСПРАВЛЕНО: Добавили рамку для большой обложки
+                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(if (largeIcons) 32.dp else 16.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 if (station != null) {
@@ -92,7 +99,7 @@ fun FmPlayPlayerView(modifier: Modifier = Modifier, largeIcons: Boolean = false)
                 Icon(Icons.Default.SkipPrevious, "Previous", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), modifier = Modifier.size(secondaryButtonSize * 0.8f))
             }
 
-            IconButton(onClick = { MusicPlayerState.togglePlayPause() }, modifier = Modifier.size(mainButtonSize)) {
+            IconButton(onClick = { MusicPlayerState.togglePlayPause(context) }, modifier = Modifier.size(mainButtonSize)) {
                 Icon(
                     imageVector = if (MusicPlayerState.isPlaying) Icons.Default.PauseCircleFilled else Icons.Default.PlayCircleFilled,
                     contentDescription = "Play/Pause",
@@ -133,7 +140,6 @@ fun FmPlayRadioList(
     var showOnlyFavorites by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // СОСТОЯНИЯ ДЛЯ АВТОСКРОЛЛА
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
 
@@ -154,7 +160,6 @@ fun FmPlayRadioList(
     val favorites = stations.filter { settings.favoriteRadioIds.contains(it.id) }
     val displayedStations = if (showOnlyFavorites) favorites else stations
 
-    // НОВОЕ: Автоскролл при смене станции или вкладки
     val currentStationId = MusicPlayerState.currentRadioStation?.id
     LaunchedEffect(currentStationId, showOnlyFavorites, displayedStations) {
         if (currentStationId != null) {
@@ -179,13 +184,19 @@ fun FmPlayRadioList(
                 Button(
                     onClick = { showOnlyFavorites = true },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = if (showOnlyFavorites) MaterialTheme.colorScheme.surface else Color.Transparent, contentColor = if (showOnlyFavorites) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (showOnlyFavorites) MaterialTheme.colorScheme.surface else Color.Transparent,
+                        contentColor = if (showOnlyFavorites) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
                 ) { Text("Избранное") }
 
                 Button(
                     onClick = { showOnlyFavorites = false },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = if (!showOnlyFavorites) MaterialTheme.colorScheme.surface else Color.Transparent, contentColor = if (!showOnlyFavorites) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (!showOnlyFavorites) MaterialTheme.colorScheme.surface else Color.Transparent,
+                        contentColor = if (!showOnlyFavorites) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
                 ) { Text("Все станции") }
             }
 
@@ -218,7 +229,7 @@ fun FmPlayRadioList(
         } else {
             if (showOnlyFavorites) {
                 LazyVerticalGrid(
-                    state = gridState, // ПРИВЯЗАЛИ СОСТОЯНИЕ
+                    state = gridState,
                     columns = GridCells.Adaptive(140.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -241,7 +252,9 @@ fun FmPlayRadioList(
                                     .fillMaxWidth()
                                     .aspectRatio(1f)
                                     .clip(RoundedCornerShape(16.dp))
-                                    .background(if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.background)
+                                    // ИСПРАВЛЕНО: Фон изменили на surface (чтобы сочетался с рамкой) и добавили рамку
+                                    .background(if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
@@ -258,7 +271,7 @@ fun FmPlayRadioList(
                 }
             } else {
                 LazyColumn(
-                    state = listState, // ПРИВЯЗАЛИ СОСТОЯНИЕ
+                    state = listState,
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(displayedStations) { station ->
@@ -271,7 +284,15 @@ fun FmPlayRadioList(
                             }.background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent).padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AsyncImage(model = station.logoUrl, contentDescription = null, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)))
+                            AsyncImage(
+                                model = station.logoUrl,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    // ИСПРАВЛЕНО: Добавили рамку для маленьких иконок в списке
+                                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                            )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(station.name, modifier = Modifier.weight(1f), fontSize = 16.sp, color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
 

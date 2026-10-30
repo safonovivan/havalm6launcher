@@ -5,12 +5,11 @@
     <!-- Разрешение на автозапуск -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Разрешение на управление медиа-сессиями (подавляем предупреждение для системных приложений) -->
+    <!-- Разрешение на управление медиа-сессиями -->
     <uses-permission
         android:name="android.permission.MEDIA_CONTENT_CONTROL"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- Запрос списка приложений и голосового помощника -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -25,8 +24,19 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+
+    <!-- Разрешения для Wi-Fi и Bluetooth -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+
+    <!-- Убраны разрешения для Foreground Service и Overlay, они больше не нужны -->
 
     <application
         android:allowBackup="true"
@@ -39,7 +49,6 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Havalm6launcher">
 
-        <!-- Ресивер автозапуска при включении ГУ -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -49,7 +58,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- Служба перехвата медиа-сессий -->
         <service
             android:name=".MediaControlService"
             android:exported="true"
@@ -59,13 +67,28 @@
             </intent-filter>
         </service>
 
+        <!-- FloatingButtonService полностью удален, так как кнопка теперь живет в AccessibilityService -->
+
+        <service
+            android:name=".BackAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true"
+            tools:ignore="AccessibilityPolicy">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:label="havalm6launcher"
             android:theme="@style/Theme.Havalm6launcher"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            tools:ignore="DiscouragedApi">
 
             <property
                 android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"

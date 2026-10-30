@@ -1,6 +1,15 @@
 package com.haval.m6launcher.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -10,20 +19,37 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
+import androidx.core.graphics.drawable.toBitmap
 import com.haval.m6launcher.data.UserSettings
+import com.haval.m6launcher.ui.components.AppPickerDialog
 import com.haval.m6launcher.ui.components.FullPlayerContent
 import com.haval.m6launcher.ui.components.HomeMusicWidget
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.bluetooth.BluetoothAdapter
+import android.content.Context
+import android.net.wifi.WifiManager
+import androidx.compose.ui.graphics.vector.ImageVector
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import android.annotation.SuppressLint
+import android.location.Geocoder
 
 @Composable
 fun PlaceholderScreen(title: String) {
@@ -36,68 +62,355 @@ fun PlaceholderScreen(title: String) {
 fun HomeScreen(
     settings: UserSettings,
     onSettingsChange: (UserSettings) -> Unit,
-    onScanMedia: () -> Unit,
-    onPickFolder: () -> Unit
+    onPickFolder: () -> Unit,
+    executeAction: (String, String) -> Unit
 ) {
-    // Убрали initPlayer
-
     Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             HomeMusicWidget(
                 modifier = Modifier.weight(1f),
                 settings = settings,
                 onSettingsChange = onSettingsChange,
-                onScanMedia = onScanMedia,
                 onPickFolder = onPickFolder
             )
         }
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            NavWidget(modifier = Modifier.weight(1f))
+            QuickAccessWidget(
+                modifier = Modifier.weight(1f),
+                settings = settings,
+                onSettingsChange = onSettingsChange,
+                executeAction = executeAction
+            )
             InfoWidget(modifier = Modifier.height(100.dp))
         }
     }
 }
 
 @Composable
-fun NavWidget(modifier: Modifier = Modifier) {
+fun QuickAccessWidget(
+    modifier: Modifier = Modifier,
+    settings: UserSettings,
+    onSettingsChange: (UserSettings) -> Unit,
+    executeAction: (String, String) -> Unit
+) {
+    var pickerIndex by remember { mutableStateOf(-1) }
+
     Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
-        Column(modifier = Modifier.padding(24.dp)) {
-            Text("Навигатор", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Мончегорская", fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Text("42 мин", fontSize = 20.sp, color = Color(0xFF4CAF50))
+        Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+            Text("Быстрый доступ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // СЕТКА 3х3
+            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (row in 0 until 3) {
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (col in 0 until 3) {
+                            val index = row * 3 + col
+                            val appPackage = settings.quickAccessApps[index]
+
+                            AppSlot(
+                                packageName = appPackage,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    if (appPackage.isBlank()) pickerIndex = index
+                                    else executeAction("app", appPackage)
+                                },
+                                onLongClick = {
+                                    // ОЧИСТКА ПРИ ДОЛГОМ ТАПЕ
+                                    if (appPackage.isNotBlank()) {
+                                        val newList = settings.quickAccessApps.toMutableList()
+                                        newList[index] = ""
+                                        onSettingsChange(settings.copy(quickAccessApps = newList))
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (pickerIndex != -1) {
+        AppPickerDialog(
+            onDismiss = { pickerIndex = -1 },
+            onAppSelected = { packageName, _ ->
+                val newList = settings.quickAccessApps.toMutableList()
+                newList[pickerIndex] = packageName
+                onSettingsChange(settings.copy(quickAccessApps = newList))
+                pickerIndex = -1 // Закрываем после выбора
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun AppSlot(packageName: String, modifier: Modifier = Modifier, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val context = LocalContext.current
+    val shape = RoundedCornerShape(16.dp)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.background)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (packageName.isBlank()) {
+            Icon(
+                Icons.Default.Add,
+                contentDescription = "Добавить",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(48.dp)
+            )
+        } else {
+            val icon = remember(packageName) {
+                try { context.packageManager.getApplicationIcon(packageName) } catch (e: Exception) { null }
+            }
+            val name = remember(packageName) {
+                try { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(packageName, 0)).toString() } catch (e: Exception) { "" }
+            }
+
+            // Используем SpaceEvenly для равномерного распределения отступов
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 12.dp), // Небольшой отступ от самых краев плитки
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceEvenly // Равные отступы: сверху, между, снизу
+            ) {
+                if (icon != null) {
+                    Image(
+                        bitmap = icon.toBitmap(144, 144).asImageBitmap(),
+                        contentDescription = name,
+                        modifier = Modifier.size(60.dp)
+                    )
+                }
+
+                Text(
+                    text = name,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
         }
     }
 }
 
+// InfoWidget, MusicScreen и SettingsScreen оставляем без изменений...
+
+@SuppressLint("MissingPermission")
 @Composable
 fun InfoWidget(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     var currentTime by remember { mutableStateOf("--:--") }
-    LaunchedEffect(Unit) {
-        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-        while (true) { currentTime = timeFormat.format(Date()); delay(1000L) }
+    var currentDate by remember { mutableStateOf("") }
+
+    val wifiManager = remember { context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager }
+    val bluetoothAdapter = remember { BluetoothAdapter.getDefaultAdapter() }
+
+    var isWifiOn by remember { mutableStateOf(wifiManager.isWifiEnabled) }
+    var isBtOn by remember { mutableStateOf(bluetoothAdapter?.isEnabled == true) }
+
+    var temperature by remember { mutableStateOf("--°") }
+    var currentCity by remember { mutableStateOf("Поиск...") }
+    var weatherIcon by remember { mutableStateOf(Icons.Default.Cloud) }
+
+    var hasLocationPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
     }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        hasLocationPermission = isGranted
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    // Часы
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = Date()
+            currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
+            val day = SimpleDateFormat("EEEE", Locale.getDefault()).format(now)
+            val dayCap = day.substring(0, 1).uppercase() + day.substring(1)
+            currentDate = "$dayCap, ${SimpleDateFormat("d MMM", Locale.getDefault()).format(now)}"
+            delay(1000L)
+        }
+    }
+
+    // Погода
+    LaunchedEffect(hasLocationPermission) {
+        while (true) {
+            try {
+                withContext(Dispatchers.IO) {
+                    var lat: Double? = null
+                    var lon: Double? = null
+                    var cityName = "Неизвестно"
+
+                    if (hasLocationPermission) {
+                        try {
+                            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                            // Пытаемся получить последнее известное от GPS, Сети и пассивного провайдера
+                            val lastKnown = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                                ?: locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+
+                            if (lastKnown != null) {
+                                lat = lastKnown.latitude
+                                lon = lastKnown.longitude
+                            } else {
+                                // Если последнего нет, пробуем запросить текущее (ждем до 5 секунд)
+                                val currentLoc = locationManager.getCurrentLocation(LocationManager.NETWORK_PROVIDER, null, context.mainExecutor) { loc ->
+                                    if (loc != null) {
+                                        lat = loc.latitude
+                                        lon = loc.longitude
+                                    }
+                                }
+                            }
+
+                            if (lat != null && lon != null) {
+                                val geocoder = Geocoder(context, Locale.getDefault())
+                                val addresses = geocoder.getFromLocation(lat!!, lon!!, 1)
+                                if (!addresses.isNullOrEmpty()) {
+                                    cityName = addresses[0].locality ?: addresses[0].subAdminArea ?: addresses[0].adminArea ?: "Неизвестно"
+                                }
+                            }
+                        } catch (e: Exception) { }
+                    }
+
+                    // Если координаты так и не получили, показываем заглушку, НО НЕ МОСКВУ
+                    if (lat == null || lon == null) {
+                        withContext(Dispatchers.Main) {
+                            currentCity = "Нет GPS"
+                            temperature = "--°"
+                        }
+                    } else {
+                        val url = URL("https://wttr.in/$lat,$lon?format=%t")
+                        val connection = url.openConnection() as HttpURLConnection
+                        connection.requestMethod = "GET"
+                        connection.connectTimeout = 10000
+                        connection.readTimeout = 10000
+                        connection.setRequestProperty("User-Agent", "curl/7.81.0")
+
+                        if (connection.responseCode == 200) {
+                            val response = connection.inputStream.bufferedReader().use { it.readText() }.trim()
+
+                            withContext(Dispatchers.Main) {
+                                if (response.startsWith("<") || response.isBlank()) {
+                                    temperature = "Ошб"
+                                    currentCity = "Сети"
+                                } else {
+                                    currentCity = cityName
+                                    temperature = response.replace("C", "").replace("+", "+").trim()
+                                    weatherIcon = Icons.Default.Cloud
+                                }
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) { temperature = "Ошб"; currentCity = "Сети" }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    temperature = "Сбой"
+                    currentCity = "Сети"
+                }
+            }
+            delay(30 * 60 * 1000L)
+        }
+    }
+
     Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
-        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(currentTime, fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Text("+18°", fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                Column(verticalArrangement = Arrangement.Center) {
+                    Text(currentTime, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(currentDate, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), maxLines = 1)
+                }
+            }
+
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = {
+                    isWifiOn = !isWifiOn
+                    wifiManager.isWifiEnabled = isWifiOn
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.Wifi,
+                        contentDescription = "Wi-Fi",
+                        tint = if (isWifiOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                        modifier = Modifier.size(56.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                IconButton(onClick = {
+                    isBtOn = !isBtOn
+                    if (isBtOn) bluetoothAdapter?.enable() else bluetoothAdapter?.disable()
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.Bluetooth,
+                        contentDescription = "Bluetooth",
+                        tint = if (isBtOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                        modifier = Modifier.size(56.dp)
+                    )
+                }
+            }
+
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = weatherIcon,
+                            contentDescription = "Погода",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = temperature,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Text(
+                        text = currentCity,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
-
 @Composable
 fun MusicScreen(
     settings: UserSettings,
     onSettingsChange: (UserSettings) -> Unit,
-    onScanMedia: () -> Unit,
     onPickFolder: () -> Unit
 ) {
-    // Убрали initPlayer
-
     FullPlayerContent(
         settings = settings,
         onSettingsChange = onSettingsChange,
-        onScanMedia = onScanMedia,
         onPickFolder = onPickFolder
     )
 }
@@ -119,6 +432,8 @@ fun SettingsScreen(
     var doubleTapAppExpanded by remember { mutableStateOf(false) }
     var longPressAppExpanded by remember { mutableStateOf(false) }
     var mapThemeExpanded by remember { mutableStateOf(false) }
+    var floatingDoubleTapExpanded by remember { mutableStateOf(false) }
+    var floatingAppExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp).imePadding().verticalScroll(androidx.compose.foundation.rememberScrollState()),
@@ -139,6 +454,16 @@ fun SettingsScreen(
             Text("Голосовой помощник", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
             Switch(checked = settings.isVoiceAssistantEnabled, onCheckedChange = { onSettingsChange(settings.copy(isVoiceAssistantEnabled = it)) })
         }
+
+        // ТУМБЛЕР АВТОВОСПРОИЗВЕДЕНИЯ
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text("Автовоспроизведение", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
+                Text("Запускать плеер при старте ГУ", fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+            }
+            Switch(checked = settings.isAutoPlayEnabled, onCheckedChange = { onSettingsChange(settings.copy(isAutoPlayEnabled = it)) })
+        }
+
         Column {
             Text("Отступы контента (${settings.contentPadding} dp)", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
             Slider(value = settings.contentPadding.toFloat(), onValueChange = { onSettingsChange(settings.copy(contentPadding = it.toInt())) }, valueRange = 0f..48f)
@@ -277,6 +602,39 @@ fun SettingsScreen(
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
+        Text("Плавающая кнопка", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Двойной клик по кнопке", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+                Box {
+                    Button(onClick = { floatingDoubleTapExpanded = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Text(getFloatingActionName(settings.floatingDoubleTapType), color = MaterialTheme.colorScheme.primary)
+                    }
+                    DropdownMenu(expanded = floatingDoubleTapExpanded, onDismissRequest = { floatingDoubleTapExpanded = false }, properties = PopupProperties(focusable = false)) {
+                        DropdownMenuItem(text = { Text("Домой (Рабочий стол)") }, onClick = { onSettingsChange(settings.copy(floatingDoubleTapType = "home")); floatingDoubleTapExpanded = false })
+                        DropdownMenuItem(text = { Text("Недавние приложения") }, onClick = { onSettingsChange(settings.copy(floatingDoubleTapType = "recents")); floatingDoubleTapExpanded = false })
+                        DropdownMenuItem(text = { Text("Открыть приложение") }, onClick = { onSettingsChange(settings.copy(floatingDoubleTapType = "app", floatingDoubleTapValue = "")); floatingDoubleTapExpanded = false })
+                        DropdownMenuItem(text = { Text("Ничего") }, onClick = { onSettingsChange(settings.copy(floatingDoubleTapType = "none")); floatingDoubleTapExpanded = false })
+                    }
+                }
+            }
+
+            if (settings.floatingDoubleTapType == "app") {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Приложение: ", fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                    Box {
+                        TextButton(onClick = { floatingAppExpanded = true }) { Text(getAppNameByPackage(settings.floatingDoubleTapValue), fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) }
+                        DropdownMenu(expanded = floatingAppExpanded, onDismissRequest = { floatingAppExpanded = false }, properties = PopupProperties(focusable = false), modifier = Modifier.heightIn(max = 300.dp)) {
+                            allApps.forEach { app -> DropdownMenuItem(text = { Text(app.name) }, onClick = { onSettingsChange(settings.copy(floatingDoubleTapValue = app.packageName)); floatingAppExpanded = false }) }
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
         Spacer(modifier = Modifier.height(32.dp))
     }
 }
@@ -287,6 +645,16 @@ fun getActionTypeName(type: String): String {
 
 fun getActionValueName(value: String): String {
     return when (value) { "recents" -> "Недавние приложения"; "android_settings" -> "Настройки Android"; "browser" -> "Открыть Браузер"; "dialer" -> "Набор номера"; else -> value }
+}
+
+fun getFloatingActionName(type: String): String {
+    return when (type) {
+        "home" -> "Домой"
+        "recents" -> "Недавние"
+        "app" -> "Приложение"
+        "none" -> "Ничего"
+        else -> "Домой"
+    }
 }
 
 @Composable

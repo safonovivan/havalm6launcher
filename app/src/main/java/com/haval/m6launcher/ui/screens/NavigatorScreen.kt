@@ -50,8 +50,7 @@ fun NavigatorScreen(
     onNavigateToSettings: () -> Unit,
     settings: UserSettings,
     onSettingsChange: (UserSettings) -> Unit,
-    onScanMedia: () -> Unit,
-    onPickFolder: () -> Unit
+    onPickFolder: () -> Unit // <-- ТОЛЬКО ВЫБОР ПАПКИ, БЕЗ onScanMedia
 ) {
     val context = LocalContext.current
 
@@ -165,7 +164,12 @@ fun NavigatorScreen(
 
     val playerContent = remember {
         movableContentOf<Modifier> { modifier ->
-            NavPlayerPanel(modifier = modifier, settings = settings, onSettingsChange = onSettingsChange, onScanMedia = onScanMedia, onPickFolder = onPickFolder)
+            NavPlayerPanel(
+                modifier = modifier,
+                settings = settings,
+                onSettingsChange = onSettingsChange,
+                onPickFolder = onPickFolder // <-- ПЕРЕДАЕМ ТОЛЬКО ВЫБОР ПАПКИ
+            )
         }
     }
 
