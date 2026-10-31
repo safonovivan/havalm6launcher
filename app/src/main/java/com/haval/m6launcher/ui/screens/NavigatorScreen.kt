@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
-import android.location.LocationManager
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,42 +28,62 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.haval.m6launcher.data.LocationHelper
+import com.haval.m6launcher.data.MapKitState
 import com.haval.m6launcher.data.UserSettings
 import com.haval.m6launcher.ui.components.NavPlayerPanel
 import com.haval.m6launcher.ui.components.RouteManager
 import com.haval.m6launcher.ui.components.YandexMapComponent
 import com.yandex.mapkit.GeoObject
+import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Geometry
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.search.*
 import com.yandex.mapkit.search.Session
+import kotlinx.coroutines.delay
 import java.util.Calendar
 
 enum class RatioState(val mapWeight: Float) { MAP_70(0.7f), MAP_50(0.5f) }
 
 @Composable
 fun NavigatorScreen(
-    apiKey: String,
     mapTheme: String,
     onNavigateToSettings: () -> Unit,
     settings: UserSettings,
     onSettingsChange: (UserSettings) -> Unit,
-    onPickFolder: () -> Unit // <-- ТОЛЬКО ВЫБОР ПАПКИ, БЕЗ onScanMedia
+    onPickFolder: () -> Unit
 ) {
     val context = LocalContext.current
+    var isMapReady by remember { mutableStateOf(MapKitState.isInitialized) }
+
+    // ЖДЕМ ИНИЦИАЛИЗАЦИЮ КАРТ
+    LaunchedEffect(Unit) {
+        while (!MapKitState.isInitialized && !MapKitState.hasError) {
+            delay(100)
+        }
+        isMapReady = MapKitState.isInitialized
+    }
+
+    DisposableEffect(isMapReady) {
+        if (isMapReady) {
+            try { MapKitFactory.getInstance().onStart() } catch (e: Exception) {}
+        }
+        onDispose {
+            if (isMapReady) {
+                try { MapKitFactory.getInstance().onStop() } catch (e: Exception) {}
+            }
+        }
+    }
 
     var hasLocationPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
     }
     val permissionLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestPermission()) { isGranted -> hasLocationPermission = isGranted }
 
-    fun getCurrentLocation(): Point? {
-        if (!hasLocationPermission) return null
-        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val lastKnown = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-        return if (lastKnown != null) Point(lastKnown.latitude, lastKnown.longitude) else null
-    }
+    LaunchedEffect(Unit) { if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+
+    val currentLocation = LocationHelper.currentLocation
 
     val isNightMode = remember(mapTheme) {
         when (mapTheme) { "light" -> false; "dark" -> true; else -> { val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY); hour < 7 || hour >= 19 } }
@@ -86,21 +105,31 @@ fun NavigatorScreen(
     var searchResults by remember { mutableStateOf<List<GeoObject>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
 
-    val searchManager = remember(apiKey) {
-        if (apiKey.isNotBlank()) {
+    val searchManager = remember(isMapReady) {
+        if (isMapReady) {
             try { SearchFactory.getInstance().createSearchManager(SearchManagerType.COMBINED) } catch (e: Exception) { null }
         } else null
     }
 
-    LaunchedEffect(Unit) { if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+    // АВТОЦЕНТРИРОВАНИЕ ПРИ ПОЛУЧЕНИИ КООРДИНАТ
+    LaunchedEffect(currentLocation, mapInstance) {
+        if (currentLocation != null && mapInstance != null) {
+            mapInstance?.move(CameraPosition(Point(currentLocation.latitude, currentLocation.longitude), 15f, 0f, 0f))
+        }
+    }
 
     fun buildRouteTo(target: Point) {
-        val startPoint = getCurrentLocation()
-        if (startPoint == null) { Toast.makeText(context, "Нет сигнала GPS", Toast.LENGTH_SHORT).show(); return }
+        if (currentLocation == null) {
+            Toast.makeText(context, "Ожидание GPS...", Toast.LENGTH_SHORT).show()
+            return
+        }
         isBuildingRoute = true
         routeInfo = "Строим маршрут..."
         tappedPoint = null
         destinationPoint = target
+
+        val startPoint = Point(currentLocation.latitude, currentLocation.longitude)
+
         RouteManager.buildRoute(
             from = startPoint, to = target,
             onSuccess = { route ->
@@ -132,7 +161,7 @@ fun NavigatorScreen(
     val mapContent = remember {
         movableContentOf<Modifier> { modifier ->
             MapPanel(
-                modifier = modifier, apiKey = apiKey, isNightMode = isNightMode, isTrafficVisible = isTrafficVisible, hasLocationPermission = hasLocationPermission,
+                modifier = modifier, isMapReady = isMapReady, isNightMode = isNightMode, isTrafficVisible = isTrafficVisible, hasLocationPermission = hasLocationPermission,
                 onMapReady = { mapInstance = it },
                 onMapTap = { point -> if (destinationPoint == null && !isBuildingRoute) { tappedPoint = point; mapInstance?.mapObjects?.clear(); mapInstance?.mapObjects?.addPlacemark(point) } },
                 searchQuery = searchQuery, searchResults = searchResults, isSearching = isSearching,
@@ -149,7 +178,10 @@ fun NavigatorScreen(
                     } else searchResults = emptyList()
                 },
                 onSearchResultClick = { p, name -> searchQuery = name; searchResults = emptyList(); buildRouteTo(p) },
-                onMyLocationClick = { val loc = getCurrentLocation(); if (loc != null) mapInstance?.move(CameraPosition(loc, 15f, 0f, 0f)) else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
+                onMyLocationClick = {
+                    if (currentLocation != null) mapInstance?.move(CameraPosition(Point(currentLocation.latitude, currentLocation.longitude), 15f, 0f, 0f))
+                    else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                },
                 onTrafficToggle = { isTrafficVisible = !isTrafficVisible },
                 onZoomIn = { mapInstance?.let { val c = it.cameraPosition; it.move(CameraPosition(c.target, c.zoom + 1f, c.azimuth, c.tilt)) } },
                 onZoomOut = { mapInstance?.let { val c = it.cameraPosition; it.move(CameraPosition(c.target, c.zoom - 1f, c.azimuth, c.tilt)) } },
@@ -168,7 +200,7 @@ fun NavigatorScreen(
                 modifier = modifier,
                 settings = settings,
                 onSettingsChange = onSettingsChange,
-                onPickFolder = onPickFolder // <-- ПЕРЕДАЕМ ТОЛЬКО ВЫБОР ПАПКИ
+                onPickFolder = onPickFolder
             )
         }
     }
@@ -186,7 +218,7 @@ fun NavigatorScreen(
 
 @Composable
 fun MapPanel(
-    modifier: Modifier, apiKey: String, isNightMode: Boolean, isTrafficVisible: Boolean, hasLocationPermission: Boolean,
+    modifier: Modifier, isMapReady: Boolean, isNightMode: Boolean, isTrafficVisible: Boolean, hasLocationPermission: Boolean,
     onMapReady: (com.yandex.mapkit.map.Map) -> Unit, onMapTap: (Point) -> Unit,
     searchQuery: String, searchResults: List<GeoObject>, isSearching: Boolean,
     onSearchQueryChange: (String) -> Unit, onSearchResultClick: (Point, String) -> Unit,
@@ -196,7 +228,9 @@ fun MapPanel(
 ) {
     Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (apiKey.isBlank()) { MapPlaceholder { } } else {
+            if (!isMapReady) {
+                MapPlaceholder { }
+            } else {
                 YandexMapComponent(modifier = Modifier.fillMaxSize(), isNightMode = isNightMode, isTrafficVisible = isTrafficVisible, onMapReady = onMapReady, onMapTap = onMapTap)
                 Column(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).fillMaxWidth(0.8f)) {
                     OutlinedTextField(

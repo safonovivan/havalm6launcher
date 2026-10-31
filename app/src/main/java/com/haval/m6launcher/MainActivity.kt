@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +33,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.haval.m6launcher.data.LocationHelper
+import com.haval.m6launcher.data.MapKitState
 import com.haval.m6launcher.data.MusicPlayerState
 import com.haval.m6launcher.data.SettingsRepository
 import com.haval.m6launcher.data.UserSettings
@@ -39,35 +42,48 @@ import com.haval.m6launcher.ui.components.LeftNavigationPanel
 import com.haval.m6launcher.ui.screens.*
 import com.haval.m6launcher.ui.theme.HavalM6LauncherTheme
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.rememberCoroutineScope
 import com.yandex.mapkit.MapKitFactory
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
     private var isFullScreenSetting = true
-    private var apiKey = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLogger.log(applicationContext, "--- ЗАПУСК onCreate ---")
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         val settingsRepo = SettingsRepository(applicationContext)
-        val savedSettings = runBlocking { settingsRepo.userSettings.first() }
-        apiKey = savedSettings.yandexMapApiKey
-
-        if (apiKey.isNotBlank()) {
-            try {
-                MapKitFactory.setApiKey(apiKey)
-                MapKitFactory.initialize(this)
-            } catch (e: Throwable) { Toast.makeText(this, "Ошибка инициализации карт: ${e.message}", Toast.LENGTH_LONG).show() }
-        }
 
         setContent {
             val settings by settingsRepo.userSettings.collectAsState(initial = UserSettings())
             val scope = rememberCoroutineScope()
             val context = LocalContext.current
+
+            // ЕДИНСТВЕННАЯ ИНИЦИАЛИЗАЦИЯ КАРТ ВО ВСЁМ ПРИЛОЖЕНИИ
+            LaunchedEffect(Unit) {
+                if (!MapKitState.isInitialized && !MapKitState.hasError) {
+                    try {
+                        val savedSettings = settingsRepo.userSettings.first()
+                        val key = savedSettings.yandexMapApiKey
+                        if (key.isNotBlank()) {
+                            MapKitFactory.setApiKey(key)
+                            MapKitFactory.initialize(context)
+                            MapKitState.isInitialized = true
+                            AppLogger.log(context, "MapKit: Инициализация успешна")
+                        } else {
+                            MapKitState.hasError = true
+                            AppLogger.log(context, "MapKit: Ключ API пуст")
+                        }
+                    } catch (e: Throwable) {
+                        MapKitState.hasError = true
+                        AppLogger.log(context, "MapKit Init Error: ${e.message}")
+                    }
+                }
+            }
 
             LaunchedEffect(Unit) {
                 MusicPlayerState.restoreState(context, settingsRepo)
@@ -108,15 +124,13 @@ class MainActivity : ComponentActivity() {
                                         "recents" -> {
                                             if (BackAccessibilityService.instance != null) {
                                                 BackAccessibilityService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS)
-                                            } else {
-                                                Toast.makeText(context, "Включите Специальные возможности!", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                         "android_settings" -> { val intent = Intent(android.provider.Settings.ACTION_SETTINGS); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(intent) }
                                         "browser" -> { val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://yandex.ru")); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(intent) }
                                         "dialer" -> { val intent = Intent(Intent.ACTION_DIAL); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(intent) }
                                     }
-                                } catch (e: Exception) { Toast.makeText(context, "Действие не поддерживается", Toast.LENGTH_SHORT).show() }
+                                } catch (e: Exception) { }
                             }
                         }
                     },
@@ -126,16 +140,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        AppLogger.log(applicationContext, "onNewIntent (Нажата Home)")
+        setIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppLogger.log(applicationContext, "onResume (На экране)")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        AppLogger.log(applicationContext, "onPause (Скрыт)")
+    }
+
     override fun onStart() {
         super.onStart()
-        if (apiKey.isNotBlank()) MapKitFactory.getInstance().onStart()
+        LocationHelper.startListening(this) // <-- ВКЛЮЧАЕМ GPS НА ВЕСЬ ЭКРАН
         MainActivity.isLauncherVisible = true
         sendBroadcast(Intent("ACTION_HIDE_BUTTON").setPackage(packageName))
     }
 
     override fun onStop() {
         super.onStop()
-        if (apiKey.isNotBlank()) MapKitFactory.getInstance().onStop()
+        LocationHelper.stopListening() // <-- ВЫКЛЮЧАЕМ, КОГДА УХОДИМ В ФОН
         MusicPlayerState.savePlaybackStateOnStop(this)
         MainActivity.isLauncherVisible = false
         sendBroadcast(Intent("ACTION_SHOW_BUTTON").setPackage(packageName))
@@ -143,6 +173,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        AppLogger.log(applicationContext, "onWindowFocusChanged: $hasFocus")
         if (hasFocus && isFullScreenSetting) {
             val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
             windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -173,9 +204,7 @@ fun MainLauncherContent(
         }
     }
 
-    val handlePickFolder = {
-        folderPickerLauncher.launch(null)
-    }
+    val handlePickFolder = { folderPickerLauncher.launch(null) }
 
     val startVoiceInput = {
         var launched = false
@@ -194,10 +223,11 @@ fun MainLauncherContent(
                 try { context.startActivity(voiceCommandIntent); launched = true } catch (e: Exception) {}
             }
         }
-        if (!launched) Toast.makeText(context, "Голосовой ввод не найден на этом устройстве", Toast.LENGTH_SHORT).show()
     }
 
-    Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    val paddingModifier = if (settings.isFullScreen) Modifier else Modifier.systemBarsPadding()
+
+    Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).then(paddingModifier)) {
         LeftNavigationPanel(
             modifier = Modifier.width(100.dp).fillMaxHeight(),
             currentRoute = currentRoute,
@@ -210,7 +240,7 @@ fun MainLauncherContent(
 
         NavHost(navController = navController, startDestination = "home", modifier = Modifier.fillMaxSize().padding(settings.contentPadding.dp)) {
             composable("home") { HomeScreen(settings = settings, onSettingsChange = onSettingsChange, onPickFolder = handlePickFolder, executeAction = executeAction) }
-            composable("nav") { NavigatorScreen(apiKey = settings.yandexMapApiKey, mapTheme = settings.mapTheme, onNavigateToSettings = { navController.navigate("settings") }, settings = settings, onSettingsChange = onSettingsChange, onPickFolder = handlePickFolder) }
+            composable("nav") { NavigatorScreen(mapTheme = settings.mapTheme, onNavigateToSettings = { navController.navigate("settings") }, settings = settings, onSettingsChange = onSettingsChange, onPickFolder = handlePickFolder) }
             composable("music") { MusicScreen(settings = settings, onSettingsChange = onSettingsChange, onPickFolder = handlePickFolder) }
             composable("obd") { ObdScreen() }
             composable("apps") { AppsScreen() }

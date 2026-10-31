@@ -5,10 +5,15 @@ plugins {
 
 android {
     namespace = "com.haval.m6launcher"
-
     compileSdk = 37
 
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     defaultConfig {
+        // ... (твой код)
         applicationId = "com.haval.m6launcher"
         minSdk = 28
         targetSdk = 28

@@ -48,23 +48,30 @@ object MusicPlayerState {
 
     private var exoPlayer: ExoPlayer? = null
 
+    // 1. СОХРАНЕНИЕ СОСТОЯНИЯ ПРИ ВЫХОДЕ
     fun savePlaybackStateOnStop(context: Context) {
-        if (activePlayer == PlayerType.LOCAL && currentIndex != -1) {
-            val pos = exoPlayer?.currentPosition?.toInt() ?: 0
-            val repo = SettingsRepository(context.applicationContext)
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val settings = repo.userSettings.first()
-                    repo.updateSettings(settings.copy(lastTrackIndex = currentIndex, lastTrackPosition = pos))
-                } catch (e: Exception) { }
-            }
+        val repo = SettingsRepository(context.applicationContext)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val settings = repo.userSettings.first()
+                if (activePlayer == PlayerType.LOCAL && currentIndex != -1) {
+                    val pos = exoPlayer?.currentPosition?.toInt() ?: 0
+                    repo.updateSettings(settings.copy(
+                        lastActivePlayer = "LOCAL",
+                        lastTrackIndex = currentIndex,
+                        lastTrackPosition = pos
+                    ))
+                } else {
+                    repo.updateSettings(settings.copy(lastActivePlayer = activePlayer.name))
+                }
+            } catch (e: Exception) { }
         }
     }
 
+    // 2. ВОССТАНОВЛЕНИЕ ПРИ СТАРТЕ
     suspend fun restoreState(context: Context, settingsRepo: SettingsRepository) {
         val settings = settingsRepo.userSettings.first()
 
-        // 1. ЗАГРУЖАЕМ ЛОКАЛЬНЫЙ ПЛЕЙЛИСТ
         if (settings.lastFolderUri.isNotBlank()) {
             val documentFile = DocumentFile.fromTreeUri(context, Uri.parse(settings.lastFolderUri))
             if (documentFile != null && documentFile.isDirectory) {
@@ -73,14 +80,9 @@ object MusicPlayerState {
                 if (newTracks.isNotEmpty()) {
                     playlist.clear()
                     playlist.addAll(newTracks)
-
-                    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Устанавливаем индекс трека из настроек сразу при загрузке!
-                    val safeIndex = settings.lastTrackIndex.coerceIn(0, playlist.size - 1)
-                    currentIndex = safeIndex
-                    currentPosition = settings.lastTrackPosition // Восстанавливаем и секунду
-
-                    // Обновляем данные для UI
-                    val track = playlist[safeIndex]
+                    currentIndex = settings.lastTrackIndex.coerceIn(0, playlist.size - 1)
+                    currentPosition = settings.lastTrackPosition
+                    val track = playlist[currentIndex]
                     currentTitle = track.title
                     currentArtist = track.artist
                     currentAlbumArt = track.albumArt
@@ -88,20 +90,19 @@ object MusicPlayerState {
             }
         }
 
-        // 2. ЗАГРУЖАЕМ РАДИО
-        val (stations, _) = FmPlayApi.fetchStations(context)
-        if (stations.isNotEmpty()) {
-            val favorites = stations.filter { settings.favoriteRadioIds.contains(it.id) }
-            val savedStation = stations.find { it.id == settings.lastRadioStationId }
-            val stationToPlay = if (favorites.any { it.id == savedStation?.id }) savedStation else favorites.firstOrNull() ?: stations.first()
-
-            currentRadioStation = stationToPlay
+        if (settings.lastRadioStationUrl.isNotBlank()) {
+            val fakeStation = FmPlayStation(
+                id = settings.lastRadioStationId,
+                name = settings.lastRadioStationName,
+                logoUrl = settings.lastRadioStationLogo,
+                streamUrl = settings.lastRadioStationUrl
+            )
+            currentRadioStation = fakeStation
             currentRadioQueue.clear()
-            currentRadioQueue.addAll(stations)
-            currentRadioIndex = stations.indexOf(stationToPlay)
+            currentRadioQueue.add(fakeStation)
+            currentRadioIndex = 0
         }
 
-        // 3. ВОССТАНАВЛИВАЕМ АКТИВНЫЙ ПЛЕЕР
         activePlayer = try { PlayerType.valueOf(settings.lastActivePlayer) } catch (e: Exception) { PlayerType.LOCAL }
 
         if (activePlayer == PlayerType.LOCAL && playlist.isNotEmpty()) {
@@ -115,6 +116,7 @@ object MusicPlayerState {
         }
     }
 
+    // 3. ПЕРЕКЛЮЧЕНИЕ ПЛЕЕРОВ
     fun switchPlayer(context: Context, newPlayer: PlayerType) {
         if (activePlayer == newPlayer) return
 
@@ -147,14 +149,12 @@ object MusicPlayerState {
         when (newPlayer) {
             PlayerType.LOCAL -> {
                 if (playlist.isNotEmpty()) {
-                    // Используем сохраненный currentIndex (который мы восстановили при старте)
                     val safeIndex = if (currentIndex in 0 until playlist.size) currentIndex else 0
                     currentIndex = safeIndex
                     val track = playlist[safeIndex]
                     currentTitle = track.title
                     currentArtist = track.artist
                     currentAlbumArt = track.albumArt
-                    // Воспроизводим с сохраненной позиции
                     playTrack(context, safeIndex, currentPosition, autoPlay = true)
                 } else {
                     currentTitle = "Нажмите папку, чтобы выбрать MP3"
@@ -179,6 +179,7 @@ object MusicPlayerState {
         }
     }
 
+    // 4. PLAY/PAUSE
     fun togglePlayPause(context: Context) {
         if (isPlaying) {
             val currentPos = exoPlayer?.currentPosition?.toInt() ?: 0
@@ -223,6 +224,7 @@ object MusicPlayerState {
         }
     }
 
+    // 5. РАДИО
     fun playRadioStream(context: Context, station: FmPlayStation, queue: List<FmPlayStation>, autoPlay: Boolean = true) {
         initExoPlayer(context)
         playbackError = null
@@ -232,7 +234,13 @@ object MusicPlayerState {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val settings = repo.userSettings.first()
-                repo.updateSettings(settings.copy(lastActivePlayer = "FMPLAY", lastRadioStationId = station.id))
+                repo.updateSettings(settings.copy(
+                    lastActivePlayer = "FMPLAY",
+                    lastRadioStationId = station.id,
+                    lastRadioStationUrl = station.streamUrl,
+                    lastRadioStationName = station.name,
+                    lastRadioStationLogo = station.logoUrl
+                ))
             } catch (e: Exception) { }
         }
 
@@ -305,21 +313,17 @@ object MusicPlayerState {
                 if (mime.startsWith("audio/") || rawName.endsWith(".mp3", true) || rawName.endsWith(".flac", true) || rawName.endsWith(".wav", true)) {
                     val uri = file.uri
                     val retriever = MediaMetadataRetriever()
-
                     var title = ""
                     var artist = ""
                     var art: Bitmap? = null
-
                     try {
                         retriever.setDataSource(context, uri)
-                        // ИСПРАВЛЕНИЕ: Обрезаем невидимые пробелы с помощью .trim()
                         title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.trim() ?: ""
                         artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.trim() ?: ""
                         val artBytes = retriever.embeddedPicture
                         if (artBytes != null) art = BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
                     } catch (e: Exception) {} finally { retriever.release() }
 
-                    // УМНЫЙ ПАРСЕР
                     if (title.isBlank()) {
                         val nameWithoutExt = Uri.decode(rawName).substringBeforeLast(".").trim()
                         if (nameWithoutExt.contains(" - ")) {
@@ -360,7 +364,7 @@ object MusicPlayerState {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val settings = repo.userSettings.first()
-                repo.updateSettings(settings.copy(lastTrackIndex = index, lastTrackPosition = startPosition))
+                repo.updateSettings(settings.copy(lastActivePlayer = "LOCAL", lastTrackIndex = index, lastTrackPosition = startPosition))
             } catch (e: Exception) { }
         }
 

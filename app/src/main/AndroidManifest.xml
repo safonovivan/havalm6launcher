@@ -88,6 +88,9 @@
             android:screenOrientation="landscape"
             android:theme="@style/Theme.Havalm6launcher"
             android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask"
+            android:stateNotNeeded="true"
+            android:excludeFromRecents="true"
             tools:ignore="DiscouragedApi">
 
             <property

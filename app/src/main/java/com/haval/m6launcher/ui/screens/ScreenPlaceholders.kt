@@ -1,16 +1,21 @@
 package com.haval.m6launcher.ui.screens
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
+import android.content.Context
 import android.content.pm.PackageManager
-import android.location.LocationManager
+import android.location.Geocoder
+import android.net.wifi.WifiManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,7 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -30,26 +37,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import com.haval.m6launcher.AppLogger
+import com.haval.m6launcher.data.LocationHelper
 import com.haval.m6launcher.data.UserSettings
 import com.haval.m6launcher.ui.components.AppPickerDialog
 import com.haval.m6launcher.ui.components.FullPlayerContent
 import com.haval.m6launcher.ui.components.HomeMusicWidget
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.bluetooth.BluetoothAdapter
-import android.content.Context
-import android.net.wifi.WifiManager
-import androidx.compose.ui.graphics.vector.ImageVector
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import android.annotation.SuppressLint
-import android.location.Geocoder
 
 @Composable
 fun PlaceholderScreen(title: String) {
@@ -100,7 +103,6 @@ fun QuickAccessWidget(
             Text("Быстрый доступ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
 
-            // СЕТКА 3х3
             Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (row in 0 until 3) {
                     Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -116,7 +118,6 @@ fun QuickAccessWidget(
                                     else executeAction("app", appPackage)
                                 },
                                 onLongClick = {
-                                    // ОЧИСТКА ПРИ ДОЛГОМ ТАПЕ
                                     if (appPackage.isNotBlank()) {
                                         val newList = settings.quickAccessApps.toMutableList()
                                         newList[index] = ""
@@ -138,7 +139,7 @@ fun QuickAccessWidget(
                 val newList = settings.quickAccessApps.toMutableList()
                 newList[pickerIndex] = packageName
                 onSettingsChange(settings.copy(quickAccessApps = newList))
-                pickerIndex = -1 // Закрываем после выбора
+                pickerIndex = -1
             }
         )
     }
@@ -162,12 +163,7 @@ fun AppSlot(packageName: String, modifier: Modifier = Modifier, onClick: () -> U
         contentAlignment = Alignment.Center
     ) {
         if (packageName.isBlank()) {
-            Icon(
-                Icons.Default.Add,
-                contentDescription = "Добавить",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp)
-            )
+            Icon(Icons.Default.Add, contentDescription = "Добавить", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
         } else {
             val icon = remember(packageName) {
                 try { context.packageManager.getApplicationIcon(packageName) } catch (e: Exception) { null }
@@ -176,13 +172,12 @@ fun AppSlot(packageName: String, modifier: Modifier = Modifier, onClick: () -> U
                 try { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(packageName, 0)).toString() } catch (e: Exception) { "" }
             }
 
-            // Используем SpaceEvenly для равномерного распределения отступов
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(vertical = 12.dp), // Небольшой отступ от самых краев плитки
+                    .padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceEvenly // Равные отступы: сверху, между, снизу
+                verticalArrangement = Arrangement.SpaceEvenly
             ) {
                 if (icon != null) {
                     Image(
@@ -207,8 +202,6 @@ fun AppSlot(packageName: String, modifier: Modifier = Modifier, onClick: () -> U
     }
 }
 
-// InfoWidget, MusicScreen и SettingsScreen оставляем без изменений...
-
 @SuppressLint("MissingPermission")
 @Composable
 fun InfoWidget(modifier: Modifier = Modifier) {
@@ -226,16 +219,13 @@ fun InfoWidget(modifier: Modifier = Modifier) {
     var currentCity by remember { mutableStateOf("Поиск...") }
     var weatherIcon by remember { mutableStateOf(Icons.Default.Cloud) }
 
-    var hasLocationPermission by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        hasLocationPermission = isGranted
-    }
+    // БЕРЕМ КООРДИНАТЫ ИЗ ГЛОБАЛЬНОГО ХЕЛПЕРА
+    val currentLoc = LocationHelper.currentLocation
+    var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) }
 
-    LaunchedEffect(Unit) {
-        if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted -> hasPermission = isGranted }
+
+    LaunchedEffect(Unit) { if (!hasPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
 
     // Часы
     LaunchedEffect(Unit) {
@@ -249,85 +239,44 @@ fun InfoWidget(modifier: Modifier = Modifier) {
         }
     }
 
-    // Погода
-    LaunchedEffect(hasLocationPermission) {
-        while (true) {
-            try {
-                withContext(Dispatchers.IO) {
-                    var lat: Double? = null
-                    var lon: Double? = null
-                    var cityName = "Неизвестно"
-
-                    if (hasLocationPermission) {
-                        try {
-                            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                            // Пытаемся получить последнее известное от GPS, Сети и пассивного провайдера
-                            val lastKnown = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                                ?: locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
-
-                            if (lastKnown != null) {
-                                lat = lastKnown.latitude
-                                lon = lastKnown.longitude
-                            } else {
-                                // Если последнего нет, пробуем запросить текущее (ждем до 5 секунд)
-                                val currentLoc = locationManager.getCurrentLocation(LocationManager.NETWORK_PROVIDER, null, context.mainExecutor) { loc ->
-                                    if (loc != null) {
-                                        lat = loc.latitude
-                                        lon = loc.longitude
-                                    }
-                                }
-                            }
-
-                            if (lat != null && lon != null) {
-                                val geocoder = Geocoder(context, Locale.getDefault())
-                                val addresses = geocoder.getFromLocation(lat!!, lon!!, 1)
-                                if (!addresses.isNullOrEmpty()) {
-                                    cityName = addresses[0].locality ?: addresses[0].subAdminArea ?: addresses[0].adminArea ?: "Неизвестно"
-                                }
-                            }
-                        } catch (e: Exception) { }
+    // Погода (обновляется автоматически при появлении/смене координат)
+    LaunchedEffect(currentLoc) {
+        if (currentLoc == null) return@LaunchedEffect
+        try {
+            withContext(Dispatchers.IO) {
+                var cityName = "Неизвестно"
+                try {
+                    val geocoder = Geocoder(context, Locale.getDefault())
+                    val addresses = geocoder.getFromLocation(currentLoc.latitude, currentLoc.longitude, 1)
+                    if (!addresses.isNullOrEmpty()) {
+                        cityName = addresses[0].locality ?: addresses[0].subAdminArea ?: addresses[0].adminArea ?: "Неизвестно"
                     }
+                } catch (e: Exception) { }
 
-                    // Если координаты так и не получили, показываем заглушку, НО НЕ МОСКВУ
-                    if (lat == null || lon == null) {
-                        withContext(Dispatchers.Main) {
-                            currentCity = "Нет GPS"
-                            temperature = "--°"
-                        }
-                    } else {
-                        val url = URL("https://wttr.in/$lat,$lon?format=%t")
-                        val connection = url.openConnection() as HttpURLConnection
-                        connection.requestMethod = "GET"
-                        connection.connectTimeout = 10000
-                        connection.readTimeout = 10000
-                        connection.setRequestProperty("User-Agent", "curl/7.81.0")
+                AppLogger.log(context, "Погода API: Запрос для $cityName")
 
-                        if (connection.responseCode == 200) {
-                            val response = connection.inputStream.bufferedReader().use { it.readText() }.trim()
+                val url = URL("https://wttr.in/${currentLoc.latitude},${currentLoc.longitude}?format=%t")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+                connection.setRequestProperty("User-Agent", "curl/7.81.0")
 
-                            withContext(Dispatchers.Main) {
-                                if (response.startsWith("<") || response.isBlank()) {
-                                    temperature = "Ошб"
-                                    currentCity = "Сети"
-                                } else {
-                                    currentCity = cityName
-                                    temperature = response.replace("C", "").replace("+", "+").trim()
-                                    weatherIcon = Icons.Default.Cloud
-                                }
-                            }
-                        } else {
-                            withContext(Dispatchers.Main) { temperature = "Ошб"; currentCity = "Сети" }
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }.trim()
+                    withContext(Dispatchers.Main) {
+                        if (!response.startsWith("<") && response.isNotBlank()) {
+                            currentCity = cityName
+                            temperature = response.replace("C", "").replace("+", "+").trim()
+                            AppLogger.log(context, "Погода API: Успешно получено $temperature")
                         }
                     }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    temperature = "Сбой"
-                    currentCity = "Сети"
+                } else {
+                    AppLogger.log(context, "Погода API: Ошибка HTTP ${connection.responseCode}")
                 }
             }
-            delay(30 * 60 * 1000L)
+        } catch (e: Exception) {
+            AppLogger.log(context, "Погода API: Ошибка сети ${e.message}")
         }
     }
 
@@ -336,6 +285,7 @@ fun InfoWidget(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // ЛЕВАЯ ЧАСТЬ: Часы
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 Column(verticalArrangement = Arrangement.Center) {
                     Text(currentTime, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
@@ -343,6 +293,7 @@ fun InfoWidget(modifier: Modifier = Modifier) {
                 }
             }
 
+            // ЦЕНТР: Кнопки
             Row(
                 modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.Center,
@@ -373,6 +324,7 @@ fun InfoWidget(modifier: Modifier = Modifier) {
                 }
             }
 
+            // ПРАВАЯ ЧАСТЬ: Погода
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                 Column(horizontalAlignment = Alignment.End) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -402,6 +354,7 @@ fun InfoWidget(modifier: Modifier = Modifier) {
         }
     }
 }
+
 @Composable
 fun MusicScreen(
     settings: UserSettings,
@@ -434,9 +387,13 @@ fun SettingsScreen(
     var mapThemeExpanded by remember { mutableStateOf(false) }
     var floatingDoubleTapExpanded by remember { mutableStateOf(false) }
     var floatingAppExpanded by remember { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
+
+    // СОСТОЯНИЕ ДЛЯ ЛОГОВ
+    var showLogs by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp).imePadding().verticalScroll(androidx.compose.foundation.rememberScrollState()),
+        modifier = Modifier.fillMaxSize().padding(32.dp).imePadding().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Text("Настройки", fontSize = 32.sp, color = MaterialTheme.colorScheme.onBackground)
@@ -455,7 +412,6 @@ fun SettingsScreen(
             Switch(checked = settings.isVoiceAssistantEnabled, onCheckedChange = { onSettingsChange(settings.copy(isVoiceAssistantEnabled = it)) })
         }
 
-        // ТУМБЛЕР АВТОВОСПРОИЗВЕДЕНИЯ
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Автовоспроизведение", fontSize = 24.sp, color = MaterialTheme.colorScheme.onBackground)
@@ -635,6 +591,44 @@ fun SettingsScreen(
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
+
+        // КНОПКА ПРОСМОТРА ЛОГОВ
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = { showLogs = true },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Посмотреть лог запуска (для отладки)", color = MaterialTheme.colorScheme.onSecondary)
+        }
+
+        if (showLogs) {
+            val logText = AppLogger.readLogs(context)
+            AlertDialog(
+                onDismissRequest = { showLogs = false },
+                confirmButton = {
+                    TextButton(onClick = { showLogs = false }) { Text("Закрыть") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(logText))
+                        android.widget.Toast.makeText(context, "Лог скопирован в буфер", android.widget.Toast.LENGTH_SHORT).show()
+                        showLogs = false
+                    }) {
+                        Text("Скопировать")
+                    }
+                },
+                title = { Text("Лог запуска") },
+                text = {
+                    Text(
+                        text = logText,
+                        fontSize = 10.sp,
+                        modifier = Modifier.verticalScroll(rememberScrollState()).height(300.dp)
+                    )
+                }
+            )
+        }
+
         Spacer(modifier = Modifier.height(32.dp))
     }
 }

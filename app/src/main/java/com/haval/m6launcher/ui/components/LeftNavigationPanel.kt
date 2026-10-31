@@ -36,36 +36,34 @@ fun LeftNavigationPanel(
     val scope = rememberCoroutineScope()
     var isVoicePulsing by remember { mutableStateOf(false) }
 
+    val filteredMenuItems = menuItems.filter {
+        it.route != "voice" || isVoiceAssistantEnabled
+    }
+
     Column(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surface)
-            .padding(vertical = 24.dp),
+            .padding(vertical = 12.dp), // Чуть уменьшили отступы по краям
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.SpaceEvenly // КЛЮЧЕВОЙ ФИКС: равномерно распределяем всё по высоте
     ) {
-        Spacer(modifier = Modifier.weight(1f))
-
-        val filteredMenuItems = menuItems.filter {
-            it.route != "voice" || isVoiceAssistantEnabled
-        }
-
         filteredMenuItems.forEach { item ->
             val isSelected = currentRoute == item.route
 
             if (item.route == "voice") {
-                // СПЕЦИАЛЬНАЯ КНОПКА С АНИМАЦИЕЙ
+                // Анимация микрофона (без изменений)
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(56.dp) // Чуть уменьшили размер
                         .clip(RoundedCornerShape(16.dp))
                         .combinedClickable(
                             onClick = {
                                 if (!isVoicePulsing) {
                                     isVoicePulsing = true
                                     scope.launch {
-                                        delay(1200) // 1.2 секунды на анимацию
-                                        onVoiceClick() // Вызываем ассистента
-                                        isVoicePulsing = false // Возвращаем в исходное состояние
+                                        delay(1200)
+                                        onVoiceClick()
+                                        isVoicePulsing = false
                                     }
                                 }
                             },
@@ -74,70 +72,48 @@ fun LeftNavigationPanel(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Анимация (запускается только когда isVoicePulsing == true)
                     if (isVoicePulsing) {
                         val infiniteTransition = rememberInfiniteTransition(label = "voicePulse")
-
-                        // Пульсация размера круга
                         val scale by infiniteTransition.animateFloat(
-                            initialValue = 1f,
-                            targetValue = 1.6f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(600, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
+                            initialValue = 1f, targetValue = 1.6f,
+                            animationSpec = infiniteRepeatable(animation = tween(600, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Restart),
                             label = "scale"
                         )
-
-                        // Затухание круга
                         val alpha by infiniteTransition.animateFloat(
-                            initialValue = 0.7f,
-                            targetValue = 0f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(600, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
+                            initialValue = 0.7f, targetValue = 0f,
+                            animationSpec = infiniteRepeatable(animation = tween(600, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Restart),
                             label = "alpha"
                         )
-
-                        // Светящийся круг на фоне
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(40.dp)
                                 .scale(scale)
                                 .alpha(alpha)
                                 .background(MaterialTheme.colorScheme.primary, CircleShape)
                         )
                     }
-
-                    // Цвет иконки меняется на ярко-оранжевый при пульсации
                     val iconColor by animateColorAsState(
                         targetValue = if (isVoicePulsing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         label = "voiceIconColor"
                     )
-
                     Icon(
                         imageVector = item.icon,
                         contentDescription = item.label,
                         tint = iconColor,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(28.dp) // Чуть уменьшили
                     )
                 }
             } else {
-                // ОБЫЧНЫЕ КНОПКИ (Домой, Навигатор и т.д.)
+                // Обычные кнопки
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(56.dp) // Чуть уменьшили
                         .clip(RoundedCornerShape(16.dp))
                         .background(if (isSelected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f) else Color.Transparent)
                         .combinedClickable(
                             onClick = { onItemClick(item.route) },
-                            onDoubleClick = {
-                                if (item.route == "home") onHomeDoubleTap()
-                            },
-                            onLongClick = {
-                                if (item.route == "home") onHomeLongPress()
-                            }
+                            onDoubleClick = { if (item.route == "home") onHomeDoubleTap() },
+                            onLongClick = { if (item.route == "home") onHomeLongPress() }
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -145,12 +121,10 @@ fun LeftNavigationPanel(
                         imageVector = item.icon,
                         contentDescription = item.label,
                         tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(28.dp) // Чуть уменьшили
                     )
                 }
             }
         }
-
-        Spacer(modifier = Modifier.weight(1f))
     }
 }

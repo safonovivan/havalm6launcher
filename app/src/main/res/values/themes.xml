@@ -1,5 +1,8 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <style name="Theme.Havalm6launcher" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Havalm6launcher" parent="android:Theme.Material.NoActionBar">
+        <!-- Твой основной цвет темы -->
+        <item name="android:colorPrimary">#FF5722</item>
+        <!-- НОВАЯ СТРОКА: Красим окно в темный ДО загрузки приложения -->
+        <item name="android:windowBackground">#141414</item>
+    </style>
 </resources>

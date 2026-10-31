@@ -25,7 +25,6 @@ data class UserSettings(
     val favoriteRadioIds: Set<String> = emptySet(),
     val floatingDoubleTapType: String = "home",
     val floatingDoubleTapValue: String = "",
-    // МЕНЯЕМ 4 НА 9
     val quickAccessApps: List<String> = List(9) { "" },
     val isAutoPlayEnabled: Boolean = false,
 
@@ -33,7 +32,11 @@ data class UserSettings(
     val lastFolderUri: String = "",
     val lastRadioStationId: String = "",
     val lastTrackIndex: Int = 0,
-    val lastTrackPosition: Int = 0
+    val lastTrackPosition: Int = 0,
+    val lastRadioStationUrl: String = "",
+    val lastRadioStationName: String = "",
+    // НОВОЕ ПОЛЕ
+    val lastRadioStationLogo: String = ""
 )
 
 class SettingsRepository(private val context: Context) {
@@ -59,6 +62,10 @@ class SettingsRepository(private val context: Context) {
         val LAST_RADIO_STATION_ID = stringPreferencesKey("last_radio_station_id")
         val LAST_TRACK_INDEX = intPreferencesKey("last_track_index")
         val LAST_TRACK_POSITION = intPreferencesKey("last_track_position")
+        val LAST_RADIO_STATION_URL = stringPreferencesKey("last_radio_station_url")
+        val LAST_RADIO_STATION_NAME = stringPreferencesKey("last_radio_station_name")
+        // НОВЫЙ КЛЮЧ
+        val LAST_RADIO_STATION_LOGO = stringPreferencesKey("last_radio_station_logo")
     }
 
     val userSettings = context.dataStore.data.map { preferences ->
@@ -76,7 +83,6 @@ class SettingsRepository(private val context: Context) {
             favoriteRadioIds = preferences[FAVORITE_RADIO_IDS] ?: emptySet(),
             floatingDoubleTapType = preferences[FLOATING_DOUBLE_TAP_TYPE] ?: "home",
             floatingDoubleTapValue = preferences[FLOATING_DOUBLE_TAP_VALUE] ?: "",
-            // МЕНЯЕМ ЛОГИКУ ПАРСИНГА ПОД 9 ЭЛЕМЕНТОВ
             quickAccessApps = (preferences[QUICK_ACCESS_APPS] ?: "||||||||").split("|").let {
                 if (it.size == 9) it else List(9) { "" }
             },
@@ -85,7 +91,11 @@ class SettingsRepository(private val context: Context) {
             lastFolderUri = preferences[LAST_FOLDER_URI] ?: "",
             lastRadioStationId = preferences[LAST_RADIO_STATION_ID] ?: "",
             lastTrackIndex = preferences[LAST_TRACK_INDEX] ?: 0,
-            lastTrackPosition = preferences[LAST_TRACK_POSITION] ?: 0
+            lastTrackPosition = preferences[LAST_TRACK_POSITION] ?: 0,
+            lastRadioStationUrl = preferences[LAST_RADIO_STATION_URL] ?: "",
+            lastRadioStationName = preferences[LAST_RADIO_STATION_NAME] ?: "",
+            // ЧИТАЕМ ЛОГОТИП
+            lastRadioStationLogo = preferences[LAST_RADIO_STATION_LOGO] ?: ""
         )
     }
 
@@ -111,6 +121,10 @@ class SettingsRepository(private val context: Context) {
             preferences[LAST_RADIO_STATION_ID] = settings.lastRadioStationId
             preferences[LAST_TRACK_INDEX] = settings.lastTrackIndex
             preferences[LAST_TRACK_POSITION] = settings.lastTrackPosition
+            preferences[LAST_RADIO_STATION_URL] = settings.lastRadioStationUrl
+            preferences[LAST_RADIO_STATION_NAME] = settings.lastRadioStationName
+            // СОХРАНЯЕМ ЛОГОТИП
+            preferences[LAST_RADIO_STATION_LOGO] = settings.lastRadioStationLogo
         }
     }
 }
