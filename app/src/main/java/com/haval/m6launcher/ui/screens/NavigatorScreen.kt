@@ -5,12 +5,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.Uri
+import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,8 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.haval.m6launcher.data.LocationHelper
-import com.haval.m6launcher.data.MapKitState
+import com.haval.m6launcher.data.SettingsRepository
 import com.haval.m6launcher.data.UserSettings
 import com.haval.m6launcher.ui.components.NavPlayerPanel
 import com.haval.m6launcher.ui.components.RouteManager
@@ -41,13 +42,19 @@ import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.search.*
 import com.yandex.mapkit.search.Session
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import java.util.Calendar
 
 enum class RatioState(val mapWeight: Float) { MAP_70(0.7f), MAP_50(0.5f) }
 
+// Глобальный флаг, чтобы не инициализировать карты дважды
+object MapKitState {
+    var isInitialized = false
+}
+
 @Composable
 fun NavigatorScreen(
+    settingsRepo: SettingsRepository, // <-- ТЕПЕРЬ ФУНКЦИЯ ПРИНИМАЕТ settingsRepo
     mapTheme: String,
     onNavigateToSettings: () -> Unit,
     settings: UserSettings,
@@ -57,21 +64,28 @@ fun NavigatorScreen(
     val context = LocalContext.current
     var isMapReady by remember { mutableStateOf(MapKitState.isInitialized) }
 
-    // ЖДЕМ ИНИЦИАЛИЗАЦИЮ КАРТ
+    // ИНИЦИАЛИЗАЦИЯ КАРТ
     LaunchedEffect(Unit) {
-        while (!MapKitState.isInitialized && !MapKitState.hasError) {
-            delay(100)
+        if (!MapKitState.isInitialized) {
+            val apiKey = settingsRepo.userSettings.first().yandexMapApiKey
+            if (apiKey.isNotBlank()) {
+                try {
+                    MapKitFactory.setApiKey(apiKey)
+                    MapKitFactory.initialize(context)
+                    MapKitState.isInitialized = true
+                    isMapReady = true
+                } catch (e: Throwable) { }
+            }
         }
-        isMapReady = MapKitState.isInitialized
     }
 
-    DisposableEffect(isMapReady) {
+    DisposableEffect(Unit) {
         if (isMapReady) {
-            try { MapKitFactory.getInstance().onStart() } catch (e: Exception) {}
+            MapKitFactory.getInstance().onStart()
         }
         onDispose {
             if (isMapReady) {
-                try { MapKitFactory.getInstance().onStop() } catch (e: Exception) {}
+                MapKitFactory.getInstance().onStop()
             }
         }
     }
@@ -81,9 +95,23 @@ fun NavigatorScreen(
     }
     val permissionLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestPermission()) { isGranted -> hasLocationPermission = isGranted }
 
-    LaunchedEffect(Unit) { if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+    // СЛУШАТЕЛЬ GPS ДЛЯ КАРТЫ (без фильтра по 100м, чтобы стрелка двигалась плавно)
+    var currentLoc by remember { mutableStateOf<Location?>(null) }
 
-    val currentLocation = LocationHelper.currentLocation
+    DisposableEffect(hasLocationPermission) {
+        if (!hasLocationPermission) return@DisposableEffect onDispose {}
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) { currentLoc = location }
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+        }
+        try {
+            for (provider in lm.getProviders(true)) lm.requestLocationUpdates(provider, 1000L, 0f, listener)
+        } catch (e: Exception) {}
+        onDispose { lm.removeUpdates(listener) }
+    }
 
     val isNightMode = remember(mapTheme) {
         when (mapTheme) { "light" -> false; "dark" -> true; else -> { val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY); hour < 7 || hour >= 19 } }
@@ -91,7 +119,9 @@ fun NavigatorScreen(
 
     var currentRatio by remember { mutableStateOf(RatioState.MAP_70) }
     var isSwapped by remember { mutableStateOf(false) }
-    val mapWeight by animateFloatAsState(targetValue = currentRatio.mapWeight, animationSpec = tween(durationMillis = 300), label = "mapWeight")
+
+    // УБРАЛИ АНИМАЦИЮ, ЧТОБЫ НЕ ТОРМОЗИЛО
+    val mapWeight = currentRatio.mapWeight
     val playerWeight = 1f - mapWeight
 
     var mapInstance by remember { mutableStateOf<com.yandex.mapkit.map.Map?>(null) }
@@ -111,15 +141,16 @@ fun NavigatorScreen(
         } else null
     }
 
-    // АВТОЦЕНТРИРОВАНИЕ ПРИ ПОЛУЧЕНИИ КООРДИНАТ
-    LaunchedEffect(currentLocation, mapInstance) {
-        if (currentLocation != null && mapInstance != null) {
-            mapInstance?.move(CameraPosition(Point(currentLocation.latitude, currentLocation.longitude), 15f, 0f, 0f))
+    LaunchedEffect(Unit) { if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+
+    LaunchedEffect(currentLoc, mapInstance) {
+        if (currentLoc != null && mapInstance != null) {
+            mapInstance?.move(CameraPosition(Point(currentLoc!!.latitude, currentLoc!!.longitude), 15f, 0f, 0f))
         }
     }
 
     fun buildRouteTo(target: Point) {
-        if (currentLocation == null) {
+        if (currentLoc == null) {
             Toast.makeText(context, "Ожидание GPS...", Toast.LENGTH_SHORT).show()
             return
         }
@@ -128,7 +159,7 @@ fun NavigatorScreen(
         tappedPoint = null
         destinationPoint = target
 
-        val startPoint = Point(currentLocation.latitude, currentLocation.longitude)
+        val startPoint = Point(currentLoc!!.latitude, currentLoc!!.longitude)
 
         RouteManager.buildRoute(
             from = startPoint, to = target,
@@ -179,7 +210,7 @@ fun NavigatorScreen(
                 },
                 onSearchResultClick = { p, name -> searchQuery = name; searchResults = emptyList(); buildRouteTo(p) },
                 onMyLocationClick = {
-                    if (currentLocation != null) mapInstance?.move(CameraPosition(Point(currentLocation.latitude, currentLocation.longitude), 15f, 0f, 0f))
+                    if (currentLoc != null) mapInstance?.move(CameraPosition(Point(currentLoc!!.latitude, currentLoc!!.longitude), 15f, 0f, 0f))
                     else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 },
                 onTrafficToggle = { isTrafficVisible = !isTrafficVisible },

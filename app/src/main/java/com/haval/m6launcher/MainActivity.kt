@@ -33,8 +33,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.haval.m6launcher.data.LocationHelper
-import com.haval.m6launcher.data.MapKitState
 import com.haval.m6launcher.data.MusicPlayerState
 import com.haval.m6launcher.data.SettingsRepository
 import com.haval.m6launcher.data.UserSettings
@@ -43,13 +41,9 @@ import com.haval.m6launcher.ui.screens.*
 import com.haval.m6launcher.ui.theme.HavalM6LauncherTheme
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-import com.yandex.mapkit.MapKitFactory
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 
 class MainActivity : ComponentActivity() {
-
-    private var isFullScreenSetting = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,31 +53,11 @@ class MainActivity : ComponentActivity() {
         val settingsRepo = SettingsRepository(applicationContext)
 
         setContent {
-            val settings by settingsRepo.userSettings.collectAsState(initial = UserSettings())
+            // ЧИТАЕМ ТОЛЬКО ТЕМУ И ФУЛЛСКРИН В MAIN ACTIVITY (Чтобы не перерисовывать все при сохранении трека)
+            val isDarkTheme by settingsRepo.userSettings.map { it.isDarkTheme }.collectAsState(initial = true)
+            val isFullScreen by settingsRepo.userSettings.map { it.isFullScreen }.collectAsState(initial = true)
             val scope = rememberCoroutineScope()
             val context = LocalContext.current
-
-            // ЕДИНСТВЕННАЯ ИНИЦИАЛИЗАЦИЯ КАРТ ВО ВСЁМ ПРИЛОЖЕНИИ
-            LaunchedEffect(Unit) {
-                if (!MapKitState.isInitialized && !MapKitState.hasError) {
-                    try {
-                        val savedSettings = settingsRepo.userSettings.first()
-                        val key = savedSettings.yandexMapApiKey
-                        if (key.isNotBlank()) {
-                            MapKitFactory.setApiKey(key)
-                            MapKitFactory.initialize(context)
-                            MapKitState.isInitialized = true
-                            AppLogger.log(context, "MapKit: Инициализация успешна")
-                        } else {
-                            MapKitState.hasError = true
-                            AppLogger.log(context, "MapKit: Ключ API пуст")
-                        }
-                    } catch (e: Throwable) {
-                        MapKitState.hasError = true
-                        AppLogger.log(context, "MapKit Init Error: ${e.message}")
-                    }
-                }
-            }
 
             LaunchedEffect(Unit) {
                 MusicPlayerState.restoreState(context, settingsRepo)
@@ -99,17 +73,17 @@ class MainActivity : ComponentActivity() {
                 System.exit(0)
             }
 
-            LaunchedEffect(settings.isFullScreen) {
-                isFullScreenSetting = settings.isFullScreen
+            LaunchedEffect(isFullScreen) {
                 val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
-                if (settings.isFullScreen) windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
+                if (isFullScreen) windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
                 else windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
                 windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
 
-            HavalM6LauncherTheme(darkTheme = settings.isDarkTheme) {
+            HavalM6LauncherTheme(darkTheme = isDarkTheme) {
                 MainLauncherContent(
-                    settings = settings,
+                    settingsRepo = settingsRepo,
+                    isFullScreen = isFullScreen,
                     onSettingsChange = { newSettings -> scope.launch { settingsRepo.updateSettings(newSettings) } },
                     executeAction = { type, value ->
                         when (type) {
@@ -142,42 +116,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        AppLogger.log(applicationContext, "onNewIntent (Нажата Home)")
         setIntent(intent)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        AppLogger.log(applicationContext, "onResume (На экране)")
-    }
-
-    override fun onPause() {
-        super.onPause()
-        AppLogger.log(applicationContext, "onPause (Скрыт)")
     }
 
     override fun onStart() {
         super.onStart()
-        LocationHelper.startListening(this) // <-- ВКЛЮЧАЕМ GPS НА ВЕСЬ ЭКРАН
         MainActivity.isLauncherVisible = true
         sendBroadcast(Intent("ACTION_HIDE_BUTTON").setPackage(packageName))
     }
 
     override fun onStop() {
         super.onStop()
-        LocationHelper.stopListening() // <-- ВЫКЛЮЧАЕМ, КОГДА УХОДИМ В ФОН
         MusicPlayerState.savePlaybackStateOnStop(this)
         MainActivity.isLauncherVisible = false
         sendBroadcast(Intent("ACTION_SHOW_BUTTON").setPackage(packageName))
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        AppLogger.log(applicationContext, "onWindowFocusChanged: $hasFocus")
-        if (hasFocus && isFullScreenSetting) {
-            val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
-            windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
-        }
     }
 
     companion object {
@@ -187,11 +139,14 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainLauncherContent(
-    settings: UserSettings,
+    settingsRepo: SettingsRepository,
+    isFullScreen: Boolean,
     onSettingsChange: (UserSettings) -> Unit,
     executeAction: (String, String) -> Unit,
     onRestartApp: () -> Unit
 ) {
+    // ЧИТАЕМ ОСТАЛЬНЫЕ НАСТРОЙКИ ЗДЕСЬ (Перерисовывается только контент)
+    val settings by settingsRepo.userSettings.collectAsState(initial = UserSettings())
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -225,7 +180,7 @@ fun MainLauncherContent(
         }
     }
 
-    val paddingModifier = if (settings.isFullScreen) Modifier else Modifier.systemBarsPadding()
+    val paddingModifier = if (isFullScreen) Modifier else Modifier.systemBarsPadding()
 
     Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).then(paddingModifier)) {
         LeftNavigationPanel(
@@ -240,7 +195,16 @@ fun MainLauncherContent(
 
         NavHost(navController = navController, startDestination = "home", modifier = Modifier.fillMaxSize().padding(settings.contentPadding.dp)) {
             composable("home") { HomeScreen(settings = settings, onSettingsChange = onSettingsChange, onPickFolder = handlePickFolder, executeAction = executeAction) }
-            composable("nav") { NavigatorScreen(mapTheme = settings.mapTheme, onNavigateToSettings = { navController.navigate("settings") }, settings = settings, onSettingsChange = onSettingsChange, onPickFolder = handlePickFolder) }
+            composable("nav") {
+                NavigatorScreen(
+                    settingsRepo = settingsRepo,
+                    mapTheme = settings.mapTheme,
+                    onNavigateToSettings = { navController.navigate("settings") },
+                    settings = settings,
+                    onSettingsChange = onSettingsChange,
+                    onPickFolder = handlePickFolder
+                )
+            }
             composable("music") { MusicScreen(settings = settings, onSettingsChange = onSettingsChange, onPickFolder = handlePickFolder) }
             composable("obd") { ObdScreen() }
             composable("apps") { AppsScreen() }

@@ -1,12 +1,15 @@
 package com.haval.m6launcher.ui.screens
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Geocoder
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.wifi.WifiManager
+import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -40,7 +43,6 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.haval.m6launcher.AppLogger
-import com.haval.m6launcher.data.LocationHelper
 import com.haval.m6launcher.data.UserSettings
 import com.haval.m6launcher.ui.components.AppPickerDialog
 import com.haval.m6launcher.ui.components.FullPlayerContent
@@ -48,6 +50,7 @@ import com.haval.m6launcher.ui.components.HomeMusicWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
@@ -202,32 +205,12 @@ fun AppSlot(packageName: String, modifier: Modifier = Modifier, onClick: () -> U
     }
 }
 
-@SuppressLint("MissingPermission")
+// ВЫНЕСЕННЫЕ ЧАСЫ (Чтобы тиканье секунд не перерисовывало весь виджет)
 @Composable
-fun InfoWidget(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
+fun ClockWidget() {
     var currentTime by remember { mutableStateOf("--:--") }
     var currentDate by remember { mutableStateOf("") }
 
-    val wifiManager = remember { context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager }
-    val bluetoothAdapter = remember { BluetoothAdapter.getDefaultAdapter() }
-
-    var isWifiOn by remember { mutableStateOf(wifiManager.isWifiEnabled) }
-    var isBtOn by remember { mutableStateOf(bluetoothAdapter?.isEnabled == true) }
-
-    var temperature by remember { mutableStateOf("--°") }
-    var currentCity by remember { mutableStateOf("Поиск...") }
-    var weatherIcon by remember { mutableStateOf(Icons.Default.Cloud) }
-
-    // БЕРЕМ КООРДИНАТЫ ИЗ ГЛОБАЛЬНОГО ХЕЛПЕРА
-    val currentLoc = LocationHelper.currentLocation
-    var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) }
-
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted -> hasPermission = isGranted }
-
-    LaunchedEffect(Unit) { if (!hasPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
-
-    // Часы
     LaunchedEffect(Unit) {
         while (true) {
             val now = Date()
@@ -239,23 +222,69 @@ fun InfoWidget(modifier: Modifier = Modifier) {
         }
     }
 
-    // Погода (обновляется автоматически при появлении/смене координат)
+    Column(verticalArrangement = Arrangement.Center) {
+        Text(currentTime, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        Text(currentDate, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), maxLines = 1)
+    }
+}
+
+@SuppressLint("MissingPermission")
+@Composable
+fun InfoWidget(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+
+    val wifiManager = remember { context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager }
+    val bluetoothAdapter = remember { BluetoothAdapter.getDefaultAdapter() }
+
+    var isWifiOn by remember { mutableStateOf(wifiManager.isWifiEnabled) }
+    var isBtOn by remember { mutableStateOf(bluetoothAdapter?.isEnabled == true) }
+
+    var temperature by remember { mutableStateOf("--°") }
+    var currentCity by remember { mutableStateOf("GPS") }
+
+    // СЛУШАТЕЛЬ GPS С ФИЛЬТРОМ
+    var currentLoc by remember { mutableStateOf<Location?>(null) }
+    var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasPermission = it }
+
+    LaunchedEffect(Unit) { if (!hasPermission) permissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION) }
+
+    DisposableEffect(hasPermission) {
+        if (!hasPermission) return@DisposableEffect onDispose {}
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val listener = object : LocationListener {
+            // Обновляем координаты, только если сдвинулись на 100 метров
+            override fun onLocationChanged(location: Location) {
+                if (currentLoc == null || currentLoc!!.distanceTo(location) > 100f) {
+                    currentLoc = location
+                }
+            }
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+        }
+        try {
+            for (provider in lm.getProviders(true)) lm.requestLocationUpdates(provider, 5000L, 100f, listener)
+        } catch (e: Exception) {}
+        onDispose { lm.removeUpdates(listener) }
+    }
+
+    // Погода
     LaunchedEffect(currentLoc) {
         if (currentLoc == null) return@LaunchedEffect
         try {
             withContext(Dispatchers.IO) {
-                var cityName = "Неизвестно"
+                var cityName = "GPS"
                 try {
                     val geocoder = Geocoder(context, Locale.getDefault())
-                    val addresses = geocoder.getFromLocation(currentLoc.latitude, currentLoc.longitude, 1)
+                    val addresses = geocoder.getFromLocation(currentLoc!!.latitude, currentLoc!!.longitude, 1)
                     if (!addresses.isNullOrEmpty()) {
-                        cityName = addresses[0].locality ?: addresses[0].subAdminArea ?: addresses[0].adminArea ?: "Неизвестно"
+                        val c = addresses[0].locality ?: addresses[0].subAdminArea ?: addresses[0].adminArea
+                        if (!c.isNullOrBlank()) cityName = c
                     }
                 } catch (e: Exception) { }
 
-                AppLogger.log(context, "Погода API: Запрос для $cityName")
-
-                val url = URL("https://wttr.in/${currentLoc.latitude},${currentLoc.longitude}?format=%t")
+                val url = URL("https://wttr.in/${currentLoc!!.latitude},${currentLoc!!.longitude}?format=j1")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
@@ -263,21 +292,23 @@ fun InfoWidget(modifier: Modifier = Modifier) {
                 connection.setRequestProperty("User-Agent", "curl/7.81.0")
 
                 if (connection.responseCode == 200) {
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }.trim()
-                    withContext(Dispatchers.Main) {
-                        if (!response.startsWith("<") && response.isNotBlank()) {
-                            currentCity = cityName
-                            temperature = response.replace("C", "").replace("+", "+").trim()
-                            AppLogger.log(context, "Погода API: Успешно получено $temperature")
-                        }
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(response)
+                    val currentCondition = json.getJSONArray("current_condition").getJSONObject(0)
+                    val temp = currentCondition.getInt("temp_C")
+
+                    if (cityName == "GPS") {
+                        val nearestArea = json.getJSONArray("nearest_area").getJSONObject(0)
+                        cityName = nearestArea.getJSONArray("areaName").getJSONObject(0).getString("value")
                     }
-                } else {
-                    AppLogger.log(context, "Погода API: Ошибка HTTP ${connection.responseCode}")
+
+                    withContext(Dispatchers.Main) {
+                        currentCity = cityName
+                        temperature = if (temp > 0) "+$temp°" else "$temp°"
+                    }
                 }
             }
-        } catch (e: Exception) {
-            AppLogger.log(context, "Погода API: Ошибка сети ${e.message}")
-        }
+        } catch (e: Exception) { }
     }
 
     Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
@@ -285,70 +316,32 @@ fun InfoWidget(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ЛЕВАЯ ЧАСТЬ: Часы
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                Column(verticalArrangement = Arrangement.Center) {
-                    Text(currentTime, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    Text(currentDate, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), maxLines = 1)
-                }
+                ClockWidget()
             }
 
-            // ЦЕНТР: Кнопки
             Row(
                 modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = {
-                    isWifiOn = !isWifiOn
-                    wifiManager.isWifiEnabled = isWifiOn
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.Wifi,
-                        contentDescription = "Wi-Fi",
-                        tint = if (isWifiOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                        modifier = Modifier.size(56.dp)
-                    )
+                IconButton(onClick = { isWifiOn = !isWifiOn; wifiManager.isWifiEnabled = isWifiOn }) {
+                    Icon(Icons.Default.Wifi, "Wi-Fi", tint = if (isWifiOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f), modifier = Modifier.size(56.dp))
                 }
                 Spacer(modifier = Modifier.width(16.dp))
-                IconButton(onClick = {
-                    isBtOn = !isBtOn
-                    if (isBtOn) bluetoothAdapter?.enable() else bluetoothAdapter?.disable()
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.Bluetooth,
-                        contentDescription = "Bluetooth",
-                        tint = if (isBtOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                        modifier = Modifier.size(56.dp)
-                    )
+                IconButton(onClick = { isBtOn = !isBtOn; if (isBtOn) bluetoothAdapter?.enable() else bluetoothAdapter?.disable() }) {
+                    Icon(Icons.Default.Bluetooth, "Bluetooth", tint = if (isBtOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f), modifier = Modifier.size(56.dp))
                 }
             }
 
-            // ПРАВАЯ ЧАСТЬ: Погода
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                 Column(horizontalAlignment = Alignment.End) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = weatherIcon,
-                            contentDescription = "Погода",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp)
-                        )
+                        Icon(Icons.Default.Cloud, "Погода", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = temperature,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Text(temperature, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
-                    Text(
-                        text = currentCity,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Text(currentCity, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -375,6 +368,7 @@ fun SettingsScreen(
     onRestartApp: () -> Unit
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val allApps = remember { loadInstalledApps(context).filter { !it.isSystem } }
 
     var isKeyVisible by remember { mutableStateOf(false) }
@@ -387,9 +381,6 @@ fun SettingsScreen(
     var mapThemeExpanded by remember { mutableStateOf(false) }
     var floatingDoubleTapExpanded by remember { mutableStateOf(false) }
     var floatingAppExpanded by remember { mutableStateOf(false) }
-    val clipboardManager = LocalClipboardManager.current
-
-    // СОСТОЯНИЕ ДЛЯ ЛОГОВ
     var showLogs by remember { mutableStateOf(false) }
 
     Column(
